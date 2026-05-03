@@ -1,0 +1,25 @@
+services:
+  duc:
+    image: mkoestler/duc-service
+    restart: unless-stopped
+    environment:
+      SCHEDULE: "0 3 * * *"
+    volumes:
+      - /:/scan/root:ro
+      - duc_database:/database
+
+  pretty-duc:
+    build:
+      context: ..
+    restart: unless-stopped
+    ports:
+      - "8081:3000"
+    environment:
+      DUC_DATABASE: /database/duc.db
+      DUC_ROOT: /scan/root
+      PORT: 3000
+    volumes:
+      - duc_database:/database:ro
+
+volumes:
+  duc_database:

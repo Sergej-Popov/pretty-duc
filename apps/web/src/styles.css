@@ -1,0 +1,39 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;700&display=swap');
+
+:root {
+  --pd-shell-bg: radial-gradient(circle at top right, rgba(36, 180, 145, 0.24), transparent 35%), linear-gradient(135deg, #07131b 0%, #102433 50%, #f5f0e8 150%);
+  --pd-panel-bg: rgba(7, 19, 27, 0.72);
+  --pd-panel-border: rgba(255, 255, 255, 0.1);
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: 'Space Grotesk', sans-serif;
+  background: var(--pd-shell-bg);
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.glass-panel {
+  background: color-mix(in srgb, var(--mantine-color-body), transparent 18%);
+  border: 1px solid var(--pd-panel-border);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(16px);
+}
+
+.chart-surface {
+  min-height: 380px;
+}
+
+.path-chip {
+  font-family: 'IBM Plex Mono', monospace;
+  letter-spacing: -0.02em;
+}
+
+.table-row-active {
+  outline: 2px solid var(--mantine-color-teal-5);
+  outline-offset: -2px;
+}

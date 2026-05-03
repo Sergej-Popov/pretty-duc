@@ -1,0 +1,38 @@
+services:
+  fixture-scanner:
+    build:
+      context: ..
+      dockerfile: docker/test-scanner.Dockerfile
+    volumes:
+      - ../tests/fixtures/fs:/scan/root:ro
+      - duc_database:/database
+
+  pretty-duc:
+    build:
+      context: ..
+    depends_on:
+      fixture-scanner:
+        condition: service_completed_successfully
+    environment:
+      DUC_DATABASE: /database/duc.db
+      DUC_ROOT: /scan/root
+      PORT: 3000
+    ports:
+      - "3000:3000"
+    volumes:
+      - duc_database:/database:ro
+
+  test:
+    image: oven/bun:1.3.10
+    working_dir: /workspace
+    depends_on:
+      pretty-duc:
+        condition: service_started
+    volumes:
+      - ..:/workspace
+    environment:
+      TEST_BASE_URL: http://pretty-duc:3000
+    command: sh -lc "bun install && bun run test:integration:runner"
+
+volumes:
+  duc_database:

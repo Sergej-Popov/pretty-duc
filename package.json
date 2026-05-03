@@ -1,0 +1,28 @@
+{
+  "name": "pretty-duc",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "bun run build:packages && bun run build:api && bun run build:web",
+    "build:packages": "bun run --cwd packages/contracts build && bun run --cwd packages/config build && bun run --cwd packages/ui-model build",
+    "build:api": "bun run --cwd apps/api build",
+    "build:web": "bun run --cwd apps/web build",
+    "dev:api": "bun run --cwd apps/api dev",
+    "dev:web": "bun run --cwd apps/web dev",
+    "start": "bun run --cwd apps/api start",
+    "test": "bun run test:unit && bun run test:web",
+    "test:unit": "bun run build:packages && bun test packages apps/api",
+    "test:web": "bun run --cwd apps/web test",
+    "test:integration": "bun scripts/run-integration-tests.ts",
+    "test:integration:runner": "bun test tests/integration",
+    "typecheck": "bun run build:packages && bun run --cwd apps/api typecheck && bun run --cwd apps/web typecheck"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.9.3"
+  }
+}
