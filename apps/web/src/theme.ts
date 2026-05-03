@@ -1,11 +1,42 @@
 import { createTheme } from '@mantine/core';
 
 export const theme = createTheme({
-  fontFamily: 'Space Grotesk, sans-serif',
-  fontFamilyMonospace: 'IBM Plex Mono, monospace',
-  primaryColor: 'teal',
-  defaultRadius: 'md',
+  primaryColor: 'dark',
+  defaultRadius: 'sm',
   headings: {
-    fontFamily: 'Space Grotesk, sans-serif'
+    fontWeight: '700'
+  },
+  components: {
+    AppShell: {
+      defaultProps: {
+        header: { height: 72 },
+        padding: 'lg'
+      }
+    },
+    Paper: {
+      defaultProps: {
+        shadow: 'xs'
+      }
+    },
+    Button: {
+      defaultProps: {
+        radius: 'sm'
+      }
+    },
+    Badge: {
+      defaultProps: {
+        radius: 'sm'
+      }
+    },
+    Card: {
+      defaultProps: {
+        radius: 'sm'
+      }
+    },
+    SegmentedControl: {
+      defaultProps: {
+        radius: 'sm'
+      }
+    }
   }
 });

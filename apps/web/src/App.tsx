@@ -8,14 +8,19 @@ import {
   Burger,
   Button,
   Card,
+  Code,
   CopyButton,
   Divider,
   Flex,
+  Grid,
   Group,
   Loader,
+  NavLink,
   Paper,
+  Progress,
   ScrollArea,
   SegmentedControl,
+  SimpleGrid,
   Stack,
   Table,
   Text,
@@ -27,7 +32,7 @@ import {
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import type { ChildrenResponse, ExplorerNode, SortMode } from '@pretty-duc/contracts';
+import type { ChildrenResponse, SortMode } from '@pretty-duc/contracts';
 import { buildBreadcrumbs, filterNodes, formatBytes, largestItems, toChartTree } from '@pretty-duc/ui-model';
 import { fetchChildren, fetchHealth, fetchInfo } from './api';
 import { ExplorerChart } from './ExplorerChart';
@@ -43,6 +48,7 @@ export function App() {
   const [data, setData] = useState<ChildrenResponse | null>(null);
   const [health, setHealth] = useState<string>('Checking service');
   const [info, setInfo] = useState<string>('Loading Duc metadata');
+  const [rootPath, setRootPath] = useState('/scan/root');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -68,7 +74,10 @@ export function App() {
 
   useEffect(() => {
     fetchHealth()
-      .then((result) => setHealth(result.ok ? `Healthy - ${result.database}` : 'Degraded'))
+      .then((result) => {
+        setHealth(result.ok ? 'Connected' : 'Degraded');
+        setRootPath(result.root);
+      })
       .catch(() => setHealth('Health check failed'));
 
     fetchInfo()
@@ -105,10 +114,12 @@ export function App() {
 
   const filteredNodes = useMemo(() => filterNodes(data?.children ?? [], query), [data?.children, query]);
   const highlighted = filteredNodes[activeIndex] ?? null;
-  const summaryItems = useMemo(() => largestItems(filteredNodes, 5), [filteredNodes]);
+  const summaryItems = useMemo(() => largestItems(filteredNodes, 6), [filteredNodes]);
   const breadcrumbs = useMemo(() => buildBreadcrumbs(path), [path]);
-
   const chartNodes = useMemo(() => toChartTree(data?.children ?? []), [data?.children]);
+  const directoryCount = filteredNodes.filter((node) => node.type === 'directory').length;
+  const fileCount = filteredNodes.length - directoryCount;
+  const largestNode = filteredNodes[0] ?? null;
 
   function navigate(nextPath: string) {
     setPath(nextPath);
@@ -146,25 +157,37 @@ export function App() {
 
   return (
     <AppShell
-      padding="md"
+      padding="lg"
       header={{ height: 72 }}
-      navbar={{ width: 320, breakpoint: 'md', collapsed: { mobile: !mobileOpened, desktop: false } }}
-      withBorder={false}
+      navbar={{ width: 340, breakpoint: 'md', collapsed: { mobile: !mobileOpened, desktop: false } }}
     >
-      <AppShell.Header px="md">
-        <Group justify="space-between" h="100%">
-          <Group>
+      <AppShell.Header>
+        <Group justify="space-between" h="100%" px="lg">
+          <Group gap="md">
             <Burger opened={mobileOpened} onClick={toggle} hiddenFrom="md" />
+            <ThemeIcon size={38} radius="sm" variant="light" color="dark">
+              PD
+            </ThemeIcon>
             <Box>
-              <Title order={2} c="white">Pretty Duc</Title>
-              <Text c="rgba(255,255,255,0.72)" size="sm">Modern Duc browser for remote disk analysis</Text>
+              <Group gap="sm" align="center">
+                <Title order={2}>Pretty Duc</Title>
+                <Badge variant="light" color={health === 'Connected' ? 'green' : 'orange'}>
+                  {health}
+                </Badge>
+              </Group>
+              <Text size="sm" c="dimmed">Disk usage intelligence over the Duc index</Text>
             </Box>
           </Group>
-          <Group>
-            <Badge variant="light" color="teal">{health}</Badge>
-            <Badge variant="outline" color="gray">{info}</Badge>
-            <Tooltip label="Toggle dark mode">
-              <ActionIcon variant="light" color="teal" onClick={() => setColorScheme(colorScheme === 'dark' ? 'light' : 'dark')}>
+
+          <Group gap="xs">
+            <Badge variant="dot" color="gray" visibleFrom="sm">{info}</Badge>
+            <Tooltip label="Toggle color scheme">
+              <ActionIcon
+                variant="default"
+                radius="sm"
+                size="lg"
+                onClick={() => setColorScheme(colorScheme === 'dark' ? 'light' : 'dark')}
+              >
                 {colorScheme === 'dark' ? 'L' : 'D'}
               </ActionIcon>
             </Tooltip>
@@ -172,23 +195,32 @@ export function App() {
         </Group>
       </AppShell.Header>
 
-      <AppShell.Navbar p="md" className="glass-panel">
+      <AppShell.Navbar p="md">
         <AppShell.Section>
           <Stack gap="md">
-            <Paper p="md" radius="lg" className="glass-panel">
-              <Text fw={700} c="teal.2">Current path</Text>
-              <Text mt="xs" className="path-chip">{path}</Text>
-              <Group mt="md">
-                <Button variant="light" color="teal" onClick={navigateUp}>Up</Button>
-                <Button variant="default" onClick={() => setPath('/scan/root')}>Root</Button>
-                <Button variant="subtle" onClick={() => setPath(path)}>Refresh</Button>
-              </Group>
+            <Paper withBorder p="md" radius="sm">
+              <Stack gap="sm">
+                <Group justify="space-between" align="flex-start">
+                  <Box>
+                    <Text size="xs" tt="uppercase" fw={700} c="dimmed">Active scope</Text>
+                    <Text fw={700} mt={4}>Current path</Text>
+                  </Box>
+                  <Badge variant="outline" color="gray">{view}</Badge>
+                </Group>
+                <Code block>{path}</Code>
+                <Group grow>
+                  <Button variant="filled" radius="sm" onClick={navigateUp}>Up</Button>
+                  <Button variant="default" radius="sm" onClick={() => navigate(rootPath)}>Root</Button>
+                </Group>
+                <Button variant="subtle" radius="sm" onClick={() => navigate(path)}>Refresh listing</Button>
+              </Stack>
             </Paper>
 
-            <Paper p="md" radius="lg" className="glass-panel">
-              <Text fw={700}>Controls</Text>
-              <Stack mt="sm">
+            <Paper withBorder p="md" radius="sm">
+              <Stack gap="sm">
+                <Text size="xs" tt="uppercase" fw={700} c="dimmed">Controls</Text>
                 <SegmentedControl
+                  radius="sm"
                   value={view}
                   onChange={(value) => setView(value as ViewMode)}
                   data={[
@@ -197,21 +229,31 @@ export function App() {
                   ]}
                 />
                 <SegmentedControl
+                  radius="sm"
                   value={sort}
                   onChange={(value) => setSort(value as SortMode)}
                   data={[
-                    { label: 'Size', value: 'sizeDesc' },
-                    { label: 'Name', value: 'nameAsc' }
+                    { label: 'By size', value: 'sizeDesc' },
+                    { label: 'By name', value: 'nameAsc' }
                   ]}
                 />
-                <TextInput value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder="Filter current directory" />
+                <TextInput
+                  radius="sm"
+                  value={query}
+                  onChange={(event) => setQuery(event.currentTarget.value)}
+                  placeholder="Filter current directory"
+                />
                 <CopyButton value={path} timeout={1500}>
                   {({ copied, copy }) => (
                     <Button
-                      variant="light"
+                      variant="default"
+                      radius="sm"
                       onClick={() => {
                         copy();
-                        notifications.show({ message: copied ? 'Path copied' : 'Copied path to clipboard', color: 'teal' });
+                        notifications.show({
+                          message: copied ? 'Path copied' : 'Copied current path',
+                          color: 'dark'
+                        });
                       }}
                     >
                       Copy path
@@ -226,96 +268,201 @@ export function App() {
         <Divider my="md" />
 
         <AppShell.Section grow component={ScrollArea}>
-          <Stack gap="sm">
-            <Text fw={700}>Largest items</Text>
+          <Stack gap="xs">
+            <Text size="xs" tt="uppercase" fw={700} c="dimmed">Largest items</Text>
             {summaryItems.map((item) => (
-              <Card key={item.path} radius="lg" padding="sm" className="glass-panel">
-                <Group justify="space-between" wrap="nowrap">
-                  <Box>
-                    <Text fw={600}>{item.name}</Text>
-                    <Text size="xs" c="dimmed">{item.path}</Text>
-                  </Box>
-                  <Badge color={item.type === 'directory' ? 'teal' : 'gray'}>{item.humanSize}</Badge>
-                </Group>
-              </Card>
+              <NavLink
+                key={item.path}
+                label={item.name}
+                description={item.path}
+                variant="subtle"
+                active={highlighted?.path === item.path}
+                onClick={() => item.type === 'directory' && navigate(item.path)}
+                rightSection={<Badge color={item.type === 'directory' ? 'blue' : 'gray'}>{item.humanSize}</Badge>}
+              />
             ))}
           </Stack>
         </AppShell.Section>
       </AppShell.Navbar>
 
       <AppShell.Main>
-        <Stack gap="md">
-          <Paper p="md" radius="xl" className="glass-panel">
-            <Group justify="space-between" align="flex-start">
-              <Box>
-                <Breadcrumbs>
-                  {breadcrumbs.map((crumb) => (
-                    <Text component="button" type="button" key={crumb.path} onClick={() => navigate(crumb.path)}>
-                      {crumb.label}
-                    </Text>
-                  ))}
-                </Breadcrumbs>
-                <Text mt="sm" c="dimmed">Browse children, compare percentages, and jump by chart or table.</Text>
-              </Box>
-              <Badge color="teal" variant="filled">{formatBytes(data?.totalSizeBytes ?? 0)} total</Badge>
-            </Group>
+        <Stack gap="lg">
+          <Paper withBorder p="lg" radius="sm">
+            <Stack gap="lg">
+              <Group justify="space-between" align="flex-start">
+                <Box>
+                  <Text size="xs" tt="uppercase" fw={700} c="dimmed">Explorer</Text>
+                  <Title order={3} mt={4}>Visual breakdown of the active directory</Title>
+                  <Text size="sm" c="dimmed" mt={6}>Browse by chart, inspect by table, and move through the index with keyboard navigation.</Text>
+                </Box>
+                <Badge variant="filled" color="dark" size="lg">{formatBytes(data?.totalSizeBytes ?? 0)} total</Badge>
+              </Group>
+
+              <Breadcrumbs separator="/">
+                {breadcrumbs.map((crumb) => (
+                  <Button key={crumb.path} variant="subtle" size="compact-sm" onClick={() => navigate(crumb.path)}>
+                    {crumb.label}
+                  </Button>
+                ))}
+              </Breadcrumbs>
+
+              <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="md">
+                <StatCard label="Visible items" value={String(filteredNodes.length)} hint="After current filter" />
+                <StatCard label="Directories" value={String(directoryCount)} hint="Expandable branches" />
+                <StatCard label="Files" value={String(fileCount)} hint="Leaf nodes" />
+                <StatCard label="Largest entry" value={largestNode?.name ?? 'None'} hint={largestNode?.humanSize ?? '0 B'} mono={false} />
+              </SimpleGrid>
+            </Stack>
           </Paper>
 
           {loading ? (
-            <Flex align="center" justify="center" mih={420}><Loader size="lg" color="teal" /></Flex>
+            <Paper withBorder p="xl" radius="sm">
+              <Flex align="center" justify="center" mih={420}><Loader size="lg" color="dark" /></Flex>
+            </Paper>
           ) : error ? (
-            <Paper p="xl" radius="xl" className="glass-panel">
-              <Text fw={700} c="red">{error}</Text>
-              <Text c="dimmed" mt="xs">Check the Duc database mount, indexed path, or service health.</Text>
+            <Paper withBorder p="xl" radius="sm">
+              <Stack gap="xs">
+                <Text fw={700} c="red">{error}</Text>
+                <Text c="dimmed">Check the Duc database mount, indexed path, or service health.</Text>
+              </Stack>
             </Paper>
           ) : (
-            <>
-              <Paper p="md" radius="xl" className="glass-panel chart-surface">
-                <ExplorerChart
-                  nodes={chartNodes}
-                  view={view}
-                  onNavigate={(chartPath) => navigate(chartPath)}
-                />
-              </Paper>
+            <Grid gutter="lg" align="stretch">
+              <Grid.Col span={{ base: 12, xl: 8 }}>
+                <Paper withBorder p="md" radius="sm" h="100%">
+                  <Stack gap="md" h="100%">
+                    <Group justify="space-between">
+                      <Box>
+                        <Text size="xs" tt="uppercase" fw={700} c="dimmed">Chart stage</Text>
+                        <Text fw={700}>Interactive {view}</Text>
+                      </Box>
+                      <Badge variant="outline" color="gray">Click a directory to drill in</Badge>
+                    </Group>
+                    <Box style={{ minHeight: 460 }}>
+                      <ExplorerChart nodes={chartNodes} view={view} onNavigate={(chartPath) => navigate(chartPath)} />
+                    </Box>
+                  </Stack>
+                </Paper>
+              </Grid.Col>
 
-              <Paper p="md" radius="xl" className="glass-panel" onKeyDown={handleKeyNav} tabIndex={0}>
-                <Table highlightOnHover verticalSpacing="sm">
-                  <Table.Thead>
-                    <Table.Tr>
-                      <Table.Th>Name</Table.Th>
-                      <Table.Th>Type</Table.Th>
-                      <Table.Th>Size</Table.Th>
-                      <Table.Th>Share</Table.Th>
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {filteredNodes.map((node, index) => (
-                      <Table.Tr key={node.path} className={index === activeIndex ? 'table-row-active' : undefined}>
-                        <Table.Td>
-                          <Button variant="subtle" px={0} onClick={() => node.type === 'directory' && navigate(node.path)}>
-                            {node.name}
-                          </Button>
-                        </Table.Td>
-                        <Table.Td>
-                          <Group gap="xs">
-                            <ThemeIcon size="sm" color={node.type === 'directory' ? 'teal' : 'gray'} variant="light">
-                              {node.type === 'directory' ? 'D' : 'F'}
-                            </ThemeIcon>
-                            <Text>{node.type}</Text>
-                          </Group>
-                        </Table.Td>
-                        <Table.Td>{node.humanSize}</Table.Td>
-                        <Table.Td>{node.percentOfParent.toFixed(2)}%</Table.Td>
-                      </Table.Tr>
-                    ))}
-                  </Table.Tbody>
-                </Table>
-              </Paper>
-            </>
+              <Grid.Col span={{ base: 12, xl: 4 }}>
+                <Stack gap="lg" h="100%">
+                  <Paper withBorder p="md" radius="sm">
+                    <Stack gap="sm">
+                      <Text size="xs" tt="uppercase" fw={700} c="dimmed">Selection</Text>
+                      <Group justify="space-between" align="flex-start">
+                        <Box>
+                          <Text fw={700}>{highlighted?.name ?? 'Nothing selected'}</Text>
+                          <Text size="sm" c="dimmed">{highlighted?.path ?? 'Use keyboard arrows or click a row'}</Text>
+                        </Box>
+                        {highlighted ? (
+                          <Badge color={highlighted.type === 'directory' ? 'blue' : 'gray'}>{highlighted.type}</Badge>
+                        ) : null}
+                      </Group>
+                      <Divider />
+                      <MetricRow label="Size" value={highlighted?.humanSize ?? '0 B'} />
+                      <MetricRow label="Share" value={highlighted ? `${highlighted.percentOfParent.toFixed(2)}%` : '0.00%'} />
+                      <MetricRow label="Children" value={highlighted?.hasChildren ? 'Yes' : 'No'} />
+                      <Progress value={highlighted?.percentOfParent ?? 0} color="dark" radius="xs" />
+                      {highlighted?.type === 'directory' ? (
+                        <Button radius="sm" onClick={() => navigate(highlighted.path)}>Open directory</Button>
+                      ) : null}
+                    </Stack>
+                  </Paper>
+
+                  <Card withBorder radius="sm" padding="md">
+                    <Stack gap="xs">
+                      <Text size="xs" tt="uppercase" fw={700} c="dimmed">Operator notes</Text>
+                      <Text size="sm">Arrow keys move selection. Press <Code>Enter</Code> to open a directory and <Code>Backspace</Code> to move up.</Text>
+                      <Text size="sm" c="dimmed">The table below remains the authoritative listing for the current path.</Text>
+                    </Stack>
+                  </Card>
+                </Stack>
+              </Grid.Col>
+
+              <Grid.Col span={12}>
+                <Paper withBorder p="md" radius="sm" onKeyDown={handleKeyNav} tabIndex={0}>
+                  <Stack gap="md">
+                    <Group justify="space-between">
+                      <Box>
+                        <Text size="xs" tt="uppercase" fw={700} c="dimmed">Directory listing</Text>
+                        <Text fw={700}>Largest items</Text>
+                      </Box>
+                      <Badge variant="light" color="gray">{filteredNodes.length} rows</Badge>
+                    </Group>
+
+                    <ScrollArea>
+                      <Table highlightOnHover stickyHeader verticalSpacing="sm" horizontalSpacing="md">
+                        <Table.Thead>
+                          <Table.Tr>
+                            <Table.Th>Name</Table.Th>
+                            <Table.Th>Type</Table.Th>
+                            <Table.Th>Size</Table.Th>
+                            <Table.Th>Share</Table.Th>
+                          </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
+                          {filteredNodes.map((node, index) => (
+                            <Table.Tr
+                              key={node.path}
+                              bg={index === activeIndex ? 'var(--mantine-color-dark-light)' : undefined}
+                            >
+                              <Table.Td>
+                                <Group gap="xs" wrap="nowrap">
+                                  <ThemeIcon size="sm" radius="sm" variant="light" color={node.type === 'directory' ? 'blue' : 'gray'}>
+                                    {node.type === 'directory' ? 'D' : 'F'}
+                                  </ThemeIcon>
+                                  <Button
+                                    variant="subtle"
+                                    px={0}
+                                    c="inherit"
+                                    onClick={() => node.type === 'directory' && navigate(node.path)}
+                                  >
+                                    {node.name}
+                                  </Button>
+                                </Group>
+                              </Table.Td>
+                              <Table.Td>
+                                <Badge variant="outline" color={node.type === 'directory' ? 'blue' : 'gray'}>
+                                  {node.type}
+                                </Badge>
+                              </Table.Td>
+                              <Table.Td>{node.humanSize}</Table.Td>
+                              <Table.Td>{node.percentOfParent.toFixed(2)}%</Table.Td>
+                            </Table.Tr>
+                          ))}
+                        </Table.Tbody>
+                      </Table>
+                    </ScrollArea>
+                  </Stack>
+                </Paper>
+              </Grid.Col>
+            </Grid>
           )}
         </Stack>
       </AppShell.Main>
     </AppShell>
+  );
+}
+
+function StatCard({ label, value, hint, mono = true }: { label: string; value: string; hint: string; mono?: boolean }) {
+  return (
+    <Paper withBorder p="md" radius="sm">
+      <Stack gap={6}>
+        <Text size="xs" tt="uppercase" fw={700} c="dimmed">{label}</Text>
+        <Text fw={800} fz="xl" ff={mono ? 'monospace' : undefined}>{value}</Text>
+        <Text size="sm" c="dimmed">{hint}</Text>
+      </Stack>
+    </Paper>
+  );
+}
+
+function MetricRow({ label, value }: { label: string; value: string }) {
+  return (
+    <Group justify="space-between" gap="md">
+      <Text size="sm" c="dimmed">{label}</Text>
+      <Text size="sm" fw={700}>{value}</Text>
+    </Group>
   );
 }
 
