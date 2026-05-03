@@ -5,6 +5,7 @@ export const appDefaults = {
   root: '/scan/root',
   port: 3000,
   ducBin: 'duc',
+  enableTreeApi: false,
   ducTimeoutMs: 5000,
   recursiveBudgetMs: 15000,
   defaultLevels: 1,
@@ -23,6 +24,7 @@ const envSchema = z.object({
   DUC_ROOT: z.string().default(appDefaults.root),
   PORT: z.coerce.number().int().positive().default(appDefaults.port),
   DUC_BIN: z.string().default(appDefaults.ducBin),
+  ENABLE_TREE_API: z.string().optional().transform((v) => v === 'true'),
   DEFAULT_MIN_SIZE: z
     .string()
     .transform((value) => value.trim())
@@ -35,6 +37,7 @@ export type AppConfig = {
   root: string;
   port: number;
   ducBin: string;
+  enableTreeApi: boolean;
   defaultMinSize: number | null;
   limits: {
     ducTimeoutMs: number;

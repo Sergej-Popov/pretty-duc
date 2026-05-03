@@ -27,19 +27,14 @@ export function createExecutor(ducBin: string, maxConcurrency: number): DucExecu
       let stdout = '';
       let stderr = '';
 
-      const [exitCode] = await Promise.all([
+      const [exitCode, stdoutText, stderrText] = await Promise.all([
         proc.exited,
-        (async () => {
-          for await (const chunk of proc.stdout) {
-            stdout += Buffer.from(chunk).toString();
-          }
-        })(),
-        (async () => {
-          for await (const chunk of proc.stderr) {
-            stderr += Buffer.from(chunk).toString();
-          }
-        })()
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text()
       ]).finally(() => clearTimeout(timeout));
+      
+      stdout = stdoutText;
+      stderr = stderrText;
 
       if (exitCode !== 0) {
         if (stderr.toLowerCase().includes('not found') || stderr.toLowerCase().includes('no such file')) {
