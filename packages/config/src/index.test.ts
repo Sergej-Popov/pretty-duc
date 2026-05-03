@@ -6,7 +6,13 @@ describe('config', () => {
     const config = parseConfig({});
     expect(config.database).toBe('/database/duc.db');
     expect(config.root).toBe('/scan/root');
+    expect(config.mockScanRoot).toBeNull();
     expect(config.defaultMinSize).toBeNull();
+  });
+
+  test('parses optional mock root', () => {
+    const config = parseConfig({ DUC_MOCK_ROOT: ' ./tests/fixtures/mock-scan-root ' });
+    expect(config.mockScanRoot).toBe('./tests/fixtures/mock-scan-root');
   });
 
   test('rejects invalid min size', () => {

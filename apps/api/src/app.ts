@@ -12,7 +12,7 @@ import { resolveRequestedPath } from './lib/path-policy';
 
 export function createApp(config: AppConfig) {
   const app = Fastify({ logger: true });
-  const executor = createExecutor(config.ducBin, 4); // Global Duc process concurrency: 4
+  const executor = createExecutor(config, 4); // Global Duc process concurrency: 4
   const webDist = path.resolve(import.meta.dir, '../../web/dist');
 
   app.register(cors, { origin: true });
@@ -133,7 +133,17 @@ export function createApp(config: AppConfig) {
     prefix: '/'
   });
 
-  app.get('/*', async (_request, reply) => {
+  app.setNotFoundHandler(async (request, reply) => {
+    const url = request.raw.url ?? '/';
+
+    if (url === '/api' || url.startsWith('/api/')) {
+      throw new ApiError(404, 'NOT_FOUND', 'Route not found');
+    }
+
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      throw new ApiError(404, 'NOT_FOUND', 'Route not found');
+    }
+
     const indexPath = path.join(webDist, 'index.html');
     try {
       await fs.access(indexPath);

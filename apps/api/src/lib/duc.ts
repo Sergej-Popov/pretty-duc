@@ -2,6 +2,7 @@ import path from 'node:path';
 import type { AppConfig } from '@pretty-duc/config';
 import type { ExplorerNode, SortMode } from '@pretty-duc/contracts';
 import { formatBytes } from '@pretty-duc/ui-model';
+import { createMockExecutor } from './mock-duc';
 import { parseDucLsOutput } from './parser';
 import { ApiError } from './errors';
 import { Semaphore, withLimit } from './concurrency';
@@ -10,12 +11,21 @@ type ExecResult = { stdout: string; stderr: string };
 
 export type DucExecutor = (args: string[], timeoutMs: number) => Promise<ExecResult>;
 
-export function createExecutor(ducBin: string, maxConcurrency: number): DucExecutor {
+export function createExecutor(config: AppConfig, maxConcurrency: number): DucExecutor {
+  if (config.mockScanRoot) {
+    return createMockExecutor({
+      database: config.database,
+      fixtureRoot: config.mockScanRoot,
+      maxConcurrency,
+      virtualRoot: config.root
+    });
+  }
+
   const semaphore = new Semaphore(maxConcurrency);
 
   return async (args, timeoutMs) => {
     return withLimit(semaphore, async () => {
-      const proc = Bun.spawn([ducBin, ...args], {
+      const proc = Bun.spawn([config.ducBin, ...args], {
         stdout: 'pipe',
         stderr: 'pipe'
       });

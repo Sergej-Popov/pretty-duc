@@ -31,6 +31,7 @@ Pretty Duc is a modern web UI and JSON API for browsing [Duc](https://github.com
 | `DUC_ROOT` | `/scan/root` | Root path exposed by Pretty Duc |
 | `PORT` | `3000` | HTTP server port |
 | `DUC_BIN` | `duc` | Duc executable path |
+| `DUC_MOCK_ROOT` | unset | Local fixture root for mock Duc mode |
 | `DEFAULT_MIN_SIZE` | unset | Optional minimum size filter in bytes |
 
 ## Local development
@@ -52,6 +53,44 @@ bun run dev:web
 - Web: `http://localhost:5173`
 
 The Vite dev server proxies `/api` to the API server.
+
+### Local mock mode
+
+Use the built-in mock Duc mode to exercise the API and UI without a real Duc binary or database:
+
+```bash
+bun run dev:mock
+```
+
+This starts:
+
+- API on `http://localhost:3001`
+- Vite UI on `http://localhost:5173`
+
+Mock mode keeps the existing API contract and emulates the same Duc commands the backend already uses:
+
+- `duc --version`
+- `duc info -d <db>`
+- `duc ls -b -d <db> -F -- <path>`
+- `duc json -d <db> -d <levels> -- <path>`
+
+The mock scan root lives in `tests/fixtures/mock-scan-root` and includes several nested layers for browsing:
+
+- `team-space/alpha/api/logs`
+- `team-space/alpha/web/dist`
+- `team-space/beta/etl/output/2026-05-02`
+- `media/raw/camera-a/day-01`
+- `media/exports/2026/stills`
+- `archives/2024/quarterly`
+- `scratch/cache/chunks`
+
+Run only the API in mock mode if you want to point another client at it:
+
+```bash
+bun run dev:mock:api
+```
+
+Mock API endpoint: `http://localhost:3001`
 
 ## Docker usage
 

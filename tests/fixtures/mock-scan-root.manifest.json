@@ -1,0 +1,27 @@
+{
+  "version": "duc mock 0.1.0",
+  "lastScanAt": "2026-05-03 09:30:00",
+  "fileSizes": {
+    "archives/2023/quarterly/q1-summary.csv": 18432,
+    "archives/2023/quarterly/q2-summary.csv": 22528,
+    "archives/2024/quarterly/q3-summary.csv": 26624,
+    "archives/2024/quarterly/q4-summary.csv": 32768,
+    "media/exports/2026/demo-cut.mp4": 1283457024,
+    "media/exports/2026/stills/contact-sheet.png": 24576000,
+    "media/raw/camera-a/day-01/frame-0001.dng": 35651584,
+    "media/raw/camera-a/day-01/frame-0002.dng": 35652608,
+    "media/raw/camera-b/day-02/frame-0101.dng": 37224448,
+    "scratch/cache/chunks/part-000.bin": 5242880,
+    "scratch/cache/chunks/part-001.bin": 4194304,
+    "scratch/notes/todo.txt": 4096,
+    "team-space/alpha/api/logs/access.log": 7340032,
+    "team-space/alpha/api/logs/error.log": 1572864,
+    "team-space/alpha/api/src/server.ts": 12288,
+    "team-space/alpha/web/dist/app.js": 3145728,
+    "team-space/alpha/web/src/App.tsx": 8192,
+    "team-space/beta/etl/jobs/daily.ts": 16384,
+    "team-space/beta/etl/output/2026-05-01/events.ndjson": 88080384,
+    "team-space/beta/etl/output/2026-05-02/events.ndjson": 91226112,
+    "team-space/beta/reports/weekly/2026-W18.md": 6144
+  }
+}

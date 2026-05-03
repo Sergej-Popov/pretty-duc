@@ -24,6 +24,7 @@ const envSchema = z.object({
   DUC_ROOT: z.string().default(appDefaults.root),
   PORT: z.coerce.number().int().positive().default(appDefaults.port),
   DUC_BIN: z.string().default(appDefaults.ducBin),
+  DUC_MOCK_ROOT: z.string().optional(),
   ENABLE_TREE_API: z.string().optional().transform((v) => v === 'true'),
   DEFAULT_MIN_SIZE: z
     .string()
@@ -37,6 +38,7 @@ export type AppConfig = {
   root: string;
   port: number;
   ducBin: string;
+  mockScanRoot: string | null;
   enableTreeApi: boolean;
   defaultMinSize: number | null;
   limits: {
@@ -68,6 +70,7 @@ export function parseConfig(env: Record<string, string | undefined>): AppConfig 
     root: normalizeDucPath(parsed.DUC_ROOT),
     port: parsed.PORT,
     ducBin: parsed.DUC_BIN,
+    mockScanRoot: parsed.DUC_MOCK_ROOT?.trim() ? parsed.DUC_MOCK_ROOT.trim() : null,
     enableTreeApi: parsed.ENABLE_TREE_API ?? appDefaults.enableTreeApi,
     defaultMinSize,
     limits: {
@@ -111,4 +114,3 @@ export function normalizeDucPath(input: string): string {
 
   return `/${normalized.join('/')}` || '/';
 }
-
