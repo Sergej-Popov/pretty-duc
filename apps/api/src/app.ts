@@ -6,13 +6,13 @@ import fastifyStatic from '@fastify/static';
 import type { AppConfig } from '@pretty-duc/config';
 import { childrenQuerySchema, treeQuerySchema, type SortMode } from '@pretty-duc/contracts';
 import { parseDucInfoOutput, assertReasonablePayload } from './lib/parser';
-import { createExecutor, getChildrenTree } from './lib/duc';
+import { createExecutor, getChildrenTree, getTreeJson } from './lib/duc';
 import { ApiError, toErrorResponse } from './lib/errors';
 import { resolveRequestedPath } from './lib/path-policy';
 
 export function createApp(config: AppConfig) {
   const app = Fastify({ logger: true });
-  const executor = createExecutor(config.ducBin);
+  const executor = createExecutor(config.ducBin, 4); // Global Duc process concurrency: 4
   const webDist = path.resolve(import.meta.dir, '../../web/dist');
 
   app.register(cors, { origin: true });
@@ -59,12 +59,7 @@ export function createApp(config: AppConfig) {
   });
 
   app.get('/api/children', async (request) => {
-    const parsed = childrenQuerySchema.safeParse({
-      path: request.query && typeof request.query === 'object' ? (request.query as Record<string, unknown>).path : undefined,
-      levels: request.query && typeof request.query === 'object' ? (request.query as Record<string, unknown>).levels : undefined,
-      sort: request.query && typeof request.query === 'object' ? (request.query as Record<string, unknown>).sort : undefined,
-      minSize: request.query && typeof request.query === 'object' ? (request.query as Record<string, unknown>).minSize : undefined
-    });
+    const parsed = childrenQuerySchema.safeParse(request.query);
 
     if (!parsed.success) {
       throw new ApiError(422, 'INVALID_QUERY', 'Invalid children query', { issues: parsed.error.issues });
@@ -94,36 +89,34 @@ export function createApp(config: AppConfig) {
       children: result.children
     };
 
-    assertReasonablePayload(payload, config.limits.maxChildrenResponseBytes);
+    assertReasonablePayload(result.nodeCount, config.limits.maxChildrenResponseBytes);
     return payload;
   });
 
   app.get('/api/tree', async (request) => {
-    const parsed = treeQuerySchema.safeParse({
-      path: request.query && typeof request.query === 'object' ? (request.query as Record<string, unknown>).path : undefined,
-      levels: request.query && typeof request.query === 'object' ? (request.query as Record<string, unknown>).levels : undefined
-    });
+    if (!config.enableTreeApi) {
+      throw new ApiError(403, 'FEATURE_DISABLED', 'Tree endpoint is disabled by configuration');
+    }
+
+    const parsed = treeQuerySchema.safeParse(request.query);
 
     if (!parsed.success) {
       throw new ApiError(422, 'INVALID_QUERY', 'Invalid tree query', { issues: parsed.error.issues });
     }
 
     const requestedPath = resolveRequestedPath(config.root, parsed.data.path);
-    const result = await getChildrenTree({
+    
+    const result = await getTreeJson({
       config,
       path: requestedPath,
       levels: parsed.data.levels,
-      minSize: config.defaultMinSize,
-      sort: 'sizeDesc',
       maxNodes: config.limits.maxTreeNodes,
-      maxChildrenPerDirectory: config.limits.maxChildrenPerDirectory,
-      maxResponseBytes: config.limits.maxTreeResponseBytes,
       executor
     });
 
     const payload = {
       path: requestedPath,
-      source: 'duc-ls-recursive' as const,
+      source: 'duc-json' as const,
       levels: parsed.data.levels,
       nodeCount: result.nodeCount,
       truncated: result.truncated,
@@ -131,7 +124,7 @@ export function createApp(config: AppConfig) {
       children: result.children
     };
 
-    assertReasonablePayload(payload, config.limits.maxTreeResponseBytes);
+    assertReasonablePayload(result.nodeCount, config.limits.maxTreeResponseBytes);
     return payload;
   });
 

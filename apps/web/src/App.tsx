@@ -29,7 +29,7 @@ import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import type { ChildrenResponse, ExplorerNode, SortMode } from '@pretty-duc/contracts';
 import { buildBreadcrumbs, filterNodes, formatBytes, largestItems, toChartTree } from '@pretty-duc/ui-model';
-import { fetchChildren, fetchHealth, fetchInfo, fetchTree } from './api';
+import { fetchChildren, fetchHealth, fetchInfo } from './api';
 import { ExplorerChart } from './ExplorerChart';
 
 type ViewMode = 'treemap' | 'sunburst';
@@ -37,11 +37,10 @@ type ViewMode = 'treemap' | 'sunburst';
 export function App() {
   const [mobileOpened, { toggle }] = useDisclosure();
   const [path, setPath] = useState(getInitialPath);
-  const [sort, setSort] = useState<SortMode>('sizeDesc');
+  const [sort, setSort] = useState<SortMode>(getInitialSort);
   const [view, setView] = useState<ViewMode>(getInitialView);
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(getInitialQuery);
   const [data, setData] = useState<ChildrenResponse | null>(null);
-  const [treeData, setTreeData] = useState<ChildrenResponse | null>(null);
   const [health, setHealth] = useState<string>('Checking service');
   const [info, setInfo] = useState<string>('Loading Duc metadata');
   const [loading, setLoading] = useState(true);
@@ -54,8 +53,18 @@ export function App() {
     const params = new URLSearchParams(window.location.search);
     params.set('path', path);
     params.set('view', view);
+    params.set('sort', sort);
+    if (query) {
+      params.set('query', query);
+    } else {
+      params.delete('query');
+    }
     window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
-  }, [path, view]);
+  }, [path, view, sort, query]);
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [query]);
 
   useEffect(() => {
     fetchHealth()
@@ -75,21 +84,10 @@ export function App() {
       setError(null);
 
       try {
-        const [children, tree] = await Promise.all([
-          fetchChildren(path, 2, sort),
-          fetchTree(path, 2).catch(() => null)
-        ]);
+        const children = await fetchChildren(path, 2, sort);
 
         if (ignore) return;
         setData(children);
-        setTreeData(
-          tree
-            ? {
-                ...children,
-                children: tree.children
-              }
-            : children
-        );
       } catch (loadError) {
         if (!ignore) {
           setError(loadError instanceof Error ? loadError.message : 'Failed to load directory');
@@ -110,7 +108,7 @@ export function App() {
   const summaryItems = useMemo(() => largestItems(filteredNodes, 5), [filteredNodes]);
   const breadcrumbs = useMemo(() => buildBreadcrumbs(path), [path]);
 
-  const chartNodes = useMemo(() => toChartTree(treeData?.children ?? filteredNodes), [treeData?.children, filteredNodes]);
+  const chartNodes = useMemo(() => toChartTree(data?.children ?? []), [data?.children]);
 
   function navigate(nextPath: string) {
     setPath(nextPath);
@@ -336,4 +334,14 @@ function getInitialView(): ViewMode {
 
   const value = new URLSearchParams(window.location.search).get('view');
   return value === 'sunburst' ? 'sunburst' : 'treemap';
+}
+
+function getInitialSort(): SortMode {
+  if (typeof window === 'undefined') return 'sizeDesc';
+  return (new URLSearchParams(window.location.search).get('sort') as SortMode) ?? 'sizeDesc';
+}
+
+function getInitialQuery(): string {
+  if (typeof window === 'undefined') return '';
+  return new URLSearchParams(window.location.search).get('query') ?? '';
 }

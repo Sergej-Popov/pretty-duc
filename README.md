@@ -1,8 +1,10 @@
 # Pretty Duc
 
+AI disclaimer: This project is created completely with AI.  
+OpenCode + GPT5.4; Gemini CLI + 3.1 pro;  
+
 Pretty Duc is a modern web UI and JSON API for browsing [Duc](https://github.com/zevv/duc) disk usage data. It runs as a separate Docker service, reads a shared Duc database volume, and uses the `duc` CLI as its only integration layer.
 
-![Pretty Duc overview](docs/screenshots/overview.svg)
 
 ## Features
 
@@ -159,8 +161,9 @@ Terminate TLS and enforce auth in front of Pretty Duc with Nginx, Caddy, or Trae
 ## Notes on Duc integration
 
 - Normal browsing uses `duc ls -b -d <db> -F <path>`
+- Explicit subtree visualization uses `duc json` (optional)
 - Pretty Duc does not parse the Duc database directly
-- Pretty Duc avoids `duc json` for large roots and routine navigation
+- Pretty Duc avoids `duc json` for routine navigation or large roots
 
 ## Screenshots
 
@@ -184,4 +187,6 @@ Manual WSL/Linux form:
 
 ```bash
 docker compose -f docker/compose.integration.yml up --build --abort-on-container-exit --exit-code-from test
+```
+-exit-code-from test
 ```

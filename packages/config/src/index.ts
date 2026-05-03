@@ -65,6 +65,7 @@ export function parseConfig(env: Record<string, string | undefined>): AppConfig 
     root: normalizeDucPath(parsed.DUC_ROOT),
     port: parsed.PORT,
     ducBin: parsed.DUC_BIN,
+    enableTreeApi: parsed.ENABLE_TREE_API ?? appDefaults.enableTreeApi,
     defaultMinSize,
     limits: {
       ducTimeoutMs: appDefaults.ducTimeoutMs,
@@ -107,3 +108,4 @@ export function normalizeDucPath(input: string): string {
 
   return `/${normalized.join('/')}` || '/';
 }
+

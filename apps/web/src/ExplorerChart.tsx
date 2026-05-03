@@ -53,9 +53,10 @@ export function ExplorerChart({
         series: [series]
       }}
       onEvents={{
-        click: (event: { data?: { path?: unknown } }) => {
+        click: (event: { data?: { path?: unknown; type?: unknown } }) => {
           const nextPath = typeof event?.data?.path === 'string' ? event.data.path : null;
-          if (nextPath) onNavigate(nextPath);
+          const isDir = event?.data?.type === 'directory';
+          if (nextPath && isDir) onNavigate(nextPath);
         }
       }}
     />

@@ -18,7 +18,7 @@ export function parseDucLsOutput(stdout: string, parentPath: string, minSize: nu
     const sizeBytes = Number.parseInt(match[1]!, 10);
     const rawName = match[2]!.trim();
     const isDirectory = rawName.endsWith('/');
-    const name = rawName.replace(/\/$/, '');
+    const name = rawName.replace(/[\/*@=|]$/, '');
 
     if (!name || name === '.' || name === '..') {
       continue;
@@ -73,12 +73,14 @@ function parseHumanishSize(value: string, unit: string): number {
   return Math.round(num * (scale[unit.toUpperCase()] ?? 1));
 }
 
-export function assertReasonablePayload(payload: unknown, maxBytes: number) {
-  const serialized = JSON.stringify(payload);
-  if (serialized.length > maxBytes) {
-    throw new ApiError(413, 'RESPONSE_TOO_LARGE', 'Response exceeded configured payload budget', {
+export function assertReasonablePayload(nodeCount: number, maxBytes: number) {
+  // Estimate ~200 bytes per node (conservative estimate based on ExplorerNode schema)
+  const estimatedBytes = nodeCount * 200;
+  if (estimatedBytes > maxBytes) {
+    throw new ApiError(413, 'RESPONSE_TOO_LARGE', 'Response likely exceeds configured payload budget', {
       maxBytes,
-      actualBytes: serialized.length
+      estimatedBytes,
+      nodeCount
     });
   }
 }
