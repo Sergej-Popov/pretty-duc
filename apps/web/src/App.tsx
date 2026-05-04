@@ -35,7 +35,7 @@ import { notifications } from '@mantine/notifications';
 import type { ChildrenResponse, ExplorerNode, SortMode } from '@pretty-duc/contracts';
 import { buildBreadcrumbs, filterNodes, formatBytes, toChartTree } from '@pretty-duc/ui-model';
 import { fetchChildren, fetchHealth, fetchInfo } from './api';
-import { ExplorerChart, type ChartViewMode, type SunburstHighlightMode } from './ExplorerChart';
+import { ExplorerChart, type ChartColorTheme, type ChartViewMode, type SunburstHighlightMode } from './ExplorerChart';
 
 type ViewMode = ChartViewMode;
 type TableSortMode = 'sizeDesc' | 'sizeAsc' | 'nameAsc' | 'nameDesc' | 'typeAsc' | 'typeDesc';
@@ -45,6 +45,7 @@ export function App() {
   const [path, setPath] = useState(getInitialPath);
   const [sort, setSort] = useState<TableSortMode>(getInitialSort);
   const [view, setView] = useState<ViewMode>(getInitialView);
+  const [chartColorTheme, setChartColorTheme] = useState<ChartColorTheme>(getInitialChartColorTheme);
   const [depth, setDepth] = useState(getInitialDepth);
   const [query, setQuery] = useState(getInitialQuery);
   const [data, setData] = useState<ChildrenResponse | null>(null);
@@ -68,6 +69,7 @@ export function App() {
     params.set('path', path);
     params.set('view', view);
     params.set('sort', sort);
+    params.set('colors', chartColorTheme);
     params.set('depth', String(depth));
     if (query) {
       params.set('query', query);
@@ -75,7 +77,7 @@ export function App() {
       params.delete('query');
     }
     window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
-  }, [depth, path, view, sort, query]);
+  }, [chartColorTheme, depth, path, view, sort, query]);
 
   useEffect(() => {
     setActiveIndex(0);
@@ -243,31 +245,33 @@ export function App() {
 
   return (
     <AppShell
+      className="pretty-duc-shell"
       padding="lg"
       header={{ height: 72 }}
       navbar={{ width: 340, breakpoint: 'md', collapsed: { mobile: !mobileOpened, desktop: false } }}
     >
-      <AppShell.Header>
-        <Group justify="space-between" h="100%" px="lg">
-          <Group gap="md">
-            <Burger opened={mobileOpened} onClick={toggle} hiddenFrom="md" />
-            <ThemeIcon size={38} radius="sm" variant="light" color="dark">
+      <AppShell.Header className="app-header">
+        <Group className="app-header-inner" justify="space-between" h="100%" px="lg">
+          <Group className="app-brand" gap="md">
+            <Burger className="mobile-nav-toggle" opened={mobileOpened} onClick={toggle} hiddenFrom="md" />
+            <ThemeIcon className="app-logo" size={38} radius="sm" variant="light" color="dark">
               PD
             </ThemeIcon>
-            <Box>
-              <Group gap="sm" align="center">
-                <Title order={2}>Pretty Duc</Title>
-                <Badge variant="light" color={health === 'Connected' ? 'green' : 'orange'}>
+            <Box className="app-title-block">
+              <Group className="app-title-row" gap="sm" align="center">
+                <Title className="app-title" order={2}>Pretty Duc</Title>
+                <Badge className="service-health-badge" variant="light" color={health === 'Connected' ? 'green' : 'orange'}>
                   {health}
                 </Badge>
               </Group>
             </Box>
           </Group>
 
-          <Group gap="xs">
-            <Badge variant="dot" color="gray" visibleFrom="sm">{info}</Badge>
+          <Group className="app-header-actions" gap="xs">
+            <Badge className="duc-info-badge" variant="dot" color="gray" visibleFrom="sm">{info}</Badge>
             <Tooltip label="Toggle color scheme">
               <ActionIcon
+                className="color-scheme-toggle"
                 variant="default"
                 radius="sm"
                 size="lg"
@@ -280,30 +284,31 @@ export function App() {
         </Group>
       </AppShell.Header>
 
-      <AppShell.Navbar p="md">
-        <AppShell.Section>
-          <Stack gap="md">
-            <Paper withBorder p="md" radius="sm">
-              <Stack gap="sm">
-                <Group justify="space-between" align="flex-start">
-                  <Box>
+      <AppShell.Navbar className="sidebar-nav" p="md">
+        <AppShell.Section className="sidebar-main-section">
+          <Stack className="sidebar-stack" gap="md">
+            <Paper className="active-scope-panel" withBorder p="md" radius="sm">
+              <Stack className="active-scope-content" gap="sm">
+                <Group className="active-scope-header" justify="space-between" align="flex-start">
+                  <Box className="active-scope-title-block">
                     <Text size="xs" tt="uppercase" fw={700} c="dimmed">Active scope</Text>
                     <Text fw={700} mt={4}>Current path</Text>
                   </Box>
                 </Group>
-                <Code block>{path}</Code>
-                <Group grow>
-                  <Button variant="filled" radius="sm" onClick={navigateUp}>Up</Button>
-                  <Button variant="default" radius="sm" onClick={() => navigate(rootPath)}>Root</Button>
+                <Code className="current-path-code" block>{path}</Code>
+                <Group className="scope-navigation-actions" grow>
+                  <Button className="navigate-up-button" variant="filled" radius="sm" onClick={navigateUp}>Up</Button>
+                  <Button className="navigate-root-button" variant="default" radius="sm" onClick={() => navigate(rootPath)}>Root</Button>
                 </Group>
-                <Button variant="subtle" radius="sm" onClick={() => navigate(path)}>Refresh listing</Button>
+                <Button className="refresh-listing-button" variant="subtle" radius="sm" onClick={() => navigate(path)}>Refresh listing</Button>
               </Stack>
             </Paper>
 
-            <Paper withBorder p="md" radius="sm">
-              <Stack gap="sm">
-                <Text size="xs" tt="uppercase" fw={700} c="dimmed">Controls</Text>
+            <Paper className="controls-panel" withBorder p="md" radius="sm">
+              <Stack className="controls-stack" gap="sm">
+                <Text className="controls-panel-title" size="xs" tt="uppercase" fw={700} c="dimmed">Controls</Text>
                 <Select
+                  className="chart-type-select"
                   radius="sm"
                   label="Chart type"
                   value={view}
@@ -316,18 +321,41 @@ export function App() {
                     { label: 'Circle packing', value: 'circle-packing' }
                   ]}
                 />
+                <Select
+                  className="chart-colour-theme-select"
+                  radius="sm"
+                  label="Colour theme"
+                  value={chartColorTheme}
+                  onChange={(value) => setChartColorTheme(toChartColorTheme(value))}
+                  allowDeselect={false}
+                  data={[
+                    { label: 'Ocean multi', value: 'ocean' },
+                    { label: 'Blue mono', value: 'blue-mono' },
+                    { label: 'Amber mono', value: 'amber-mono' },
+                    { label: 'Forest', value: 'forest' },
+                    { label: 'Sunset neon', value: 'sunset' },
+                    { label: 'Aurora', value: 'aurora' },
+                    { label: 'Candy', value: 'candy' },
+                    { label: 'Terminal glow', value: 'terminal' },
+                    { label: 'Jewel box', value: 'jewel' },
+                    { label: 'Volcanic', value: 'volcanic' },
+                    { label: 'Pastel prism', value: 'pastel' }
+                  ]}
+                />
                 <TextInput
+                  className="directory-filter-input"
                   radius="sm"
                   value={query}
                   onChange={(event) => setQuery(event.currentTarget.value)}
                   placeholder="Filter current directory"
                 />
-                <Box mb="md">
-                  <Group justify="space-between" mb={6}>
-                    <Text size="sm" fw={500}>Graph depth</Text>
-                    <Badge variant="light" color="gray">{depth}</Badge>
+                <Box className="graph-depth-control" mb="md">
+                  <Group className="graph-depth-header" justify="space-between" mb={6}>
+                    <Text className="graph-depth-label" size="sm" fw={500}>Graph depth</Text>
+                    <Badge className="graph-depth-value" variant="light" color="gray">{depth}</Badge>
                   </Group>
                   <Slider
+                    className="graph-depth-slider"
                     min={1}
                     max={6}
                     step={1}
@@ -346,6 +374,7 @@ export function App() {
                 <CopyButton value={path} timeout={1500}>
                   {({ copied, copy }) => (
                     <Button
+                      className="copy-path-button"
                       variant="default"
                       radius="sm"
                       onClick={() => {
@@ -361,23 +390,27 @@ export function App() {
                   )}
                 </CopyButton>
                 <Switch
+                  className="show-hidden-switch"
                   checked={showHiddenItems}
                   onChange={(event) => setShowHiddenItems(event.currentTarget.checked)}
                   label={hiddenPaths.length > 0 ? `Show hidden items (${hiddenPaths.length})` : 'Show hidden items'}
                 />
                 <Switch
+                  className="decal-pattern-switch"
                   checked={useDecal}
                   onChange={(event) => setUseDecal(event.currentTarget.checked)}
                   label="Enable decal pattern"
                 />
                 {view === 'sunburst' ? (
                   <Switch
+                    className="sunburst-highlight-mode-switch"
                     checked={sunburstHighlightMode === 'descendant'}
                     onChange={(event) => setSunburstHighlightMode(event.currentTarget.checked ? 'descendant' : 'ancestor')}
                     label="Highlight children on hover"
                   />
                 ) : null}
                 <Button
+                  className="reset-hidden-list-button"
                   variant="subtle"
                   radius="sm"
                   onClick={() => setHiddenPaths([])}
@@ -394,17 +427,17 @@ export function App() {
 
       </AppShell.Navbar>
 
-      <AppShell.Main>
-        <Stack gap="lg">
-          <Paper withBorder p="lg" radius="sm">
-            <Stack gap="lg">
-              <Group justify="flex-end" align="flex-start">
-                <Badge variant="filled" color="dark" size="lg">{formatBytes(data?.totalSizeBytes ?? 0)} total</Badge>
+      <AppShell.Main className="main-content">
+        <Stack className="main-content-stack" gap="lg">
+          <Paper className="breadcrumbs-panel" withBorder p="lg" radius="sm">
+            <Stack className="breadcrumbs-panel-content" gap="lg">
+              <Group className="total-size-row" justify="flex-end" align="flex-start">
+                <Badge className="total-size-badge" variant="filled" color="dark" size="lg">{formatBytes(data?.totalSizeBytes ?? 0)} total</Badge>
               </Group>
 
-              <Breadcrumbs separator="/">
+              <Breadcrumbs className="path-breadcrumbs" separator="/">
                 {breadcrumbs.map((crumb) => (
-                  <Button key={crumb.path} variant="subtle" size="compact-sm" onClick={() => navigate(crumb.path)}>
+                  <Button className="breadcrumb-button" key={crumb.path} variant="subtle" size="compact-sm" onClick={() => navigate(crumb.path)}>
                     {crumb.label}
                   </Button>
                 ))}
@@ -414,30 +447,31 @@ export function App() {
           </Paper>
 
           {loading ? (
-            <Paper withBorder p="xl" radius="sm">
-              <Flex align="center" justify="center" mih={420}><Loader size="lg" color="dark" /></Flex>
+            <Paper className="loading-panel" withBorder p="xl" radius="sm">
+              <Flex className="loading-panel-content" align="center" justify="center" mih={420}><Loader className="loading-spinner" size="lg" color="dark" /></Flex>
             </Paper>
           ) : error ? (
-            <Paper withBorder p="xl" radius="sm">
-              <Stack gap="xs">
-                <Text fw={700} c="red">{error}</Text>
-                <Text c="dimmed">Check the Duc database mount, indexed path, or service health.</Text>
+            <Paper className="error-panel" withBorder p="xl" radius="sm">
+              <Stack className="error-panel-content" gap="xs">
+                <Text className="error-message" fw={700} c="red">{error}</Text>
+                <Text className="error-help-text" c="dimmed">Check the Duc database mount, indexed path, or service health.</Text>
               </Stack>
             </Paper>
           ) : (
-            <Grid gutter="lg" align="stretch">
-              <Grid.Col span={{ base: 12, xl: 8 }}>
-                <Paper withBorder p="md" radius="sm" h="100%">
-                  <Stack gap="md" h="100%">
-                    <Group justify="space-between">
-                      <Box>
-                        <Text fw={700}>{getViewLabel(view)}</Text>
+            <Grid className="explorer-grid" gutter="lg" align="stretch">
+              <Grid.Col className="chart-column" span={{ base: 12, xl: 8 }}>
+                <Paper className="chart-panel" withBorder p="md" radius="sm" h="100%">
+                  <Stack className="chart-panel-content" gap="md" h="100%">
+                    <Group className="chart-panel-header" justify="space-between">
+                      <Box className="chart-title-block">
+                        <Text className="chart-title" fw={700}>{getViewLabel(view)}</Text>
                       </Box>
                     </Group>
-                    <Box style={{ minHeight: 460 }}>
+                    <Box className="chart-stage" style={{ minHeight: 460 }}>
                       <ExplorerChart
                         nodes={chartNodes}
                         view={view}
+                        colorTheme={chartColorTheme}
                         sunburstHighlightMode={sunburstHighlightMode}
                         onSelect={selectByPath}
                         onContextMenu={openContextMenu}
@@ -450,66 +484,67 @@ export function App() {
                 </Paper>
               </Grid.Col>
 
-              <Grid.Col span={{ base: 12, xl: 4 }}>
-                <Stack gap="lg" h="100%">
-                  <Paper withBorder p="md" radius="sm">
-                    <Stack gap="sm">
-                      <Text size="xs" tt="uppercase" fw={700} c="dimmed">Current directory</Text>
-                      <Group justify="space-between" align="flex-start">
-                        <Box>
-                          <Text fw={700}>{breadcrumbs[breadcrumbs.length - 1]?.label ?? '/'}</Text>
-                          <Text size="sm" c="dimmed">{path}</Text>
+              <Grid.Col className="summary-column" span={{ base: 12, xl: 4 }}>
+                <Stack className="summary-stack" gap="lg" h="100%">
+                  <Paper className="current-directory-panel" withBorder p="md" radius="sm">
+                    <Stack className="current-directory-content" gap="sm">
+                      <Text className="current-directory-eyebrow" size="xs" tt="uppercase" fw={700} c="dimmed">Current directory</Text>
+                      <Group className="current-directory-header" justify="space-between" align="flex-start">
+                        <Box className="current-directory-title-block">
+                          <Text className="current-directory-name" fw={700}>{breadcrumbs[breadcrumbs.length - 1]?.label ?? '/'}</Text>
+                          <Text className="current-directory-path" size="sm" c="dimmed">{path}</Text>
                         </Box>
-                        <Badge color="dark">directory</Badge>
+                        <Badge className="current-directory-type-badge" color="dark">directory</Badge>
                       </Group>
-                      <Divider />
+                      <Divider className="current-directory-divider" />
                       <MetricRow label="Total size" value={formatBytes(data?.totalSizeBytes ?? 0)} />
                       <MetricRow label="Visible children" value={String(visibleNodes.length)} />
                       <MetricRow label="Directories" value={String(directoryCount)} />
                       <MetricRow label="Files" value={String(fileCount)} />
                       <MetricRow label="Largest child" value={largestNode?.name ?? 'None'} />
-                      <Progress value={currentDirectoryShare} color="dark" radius="xs" />
-                      <Text size="xs" c="dimmed">Visible rows account for {currentDirectoryShare.toFixed(2)}% of the current directory total.</Text>
+                      <Progress className="current-directory-share-progress" value={currentDirectoryShare} color="dark" radius="xs" />
+                      <Text className="current-directory-share-note" size="xs" c="dimmed">Visible rows account for {currentDirectoryShare.toFixed(2)}% of the current directory total.</Text>
                     </Stack>
                   </Paper>
                 </Stack>
               </Grid.Col>
 
-              <Grid.Col span={12}>
-                <Paper withBorder p="md" radius="sm" onKeyDown={handleKeyNav} tabIndex={0}>
-                  <Stack gap="md">
-                    <Group justify="space-between">
-                      <Box>
-                        <Text size="xs" tt="uppercase" fw={700} c="dimmed">Directory listing</Text>
+              <Grid.Col className="listing-column" span={12}>
+                <Paper className="directory-listing-panel" withBorder p="md" radius="sm" onKeyDown={handleKeyNav} tabIndex={0}>
+                  <Stack className="directory-listing-content" gap="md">
+                    <Group className="directory-listing-header" justify="space-between">
+                      <Box className="directory-listing-title-block">
+                        <Text className="directory-listing-title" size="xs" tt="uppercase" fw={700} c="dimmed">Directory listing</Text>
                       </Box>
-                      <Badge variant="light" color="gray">{visibleNodes.length} rows</Badge>
+                      <Badge className="directory-listing-row-count" variant="light" color="gray">{visibleNodes.length} rows</Badge>
                     </Group>
 
-                    <ScrollArea>
-                      <Table highlightOnHover stickyHeader verticalSpacing="sm" horizontalSpacing="md">
-                        <Table.Thead>
-                          <Table.Tr>
-                            <Table.Th>
-                              <Button variant="subtle" size="compact-sm" px={0} onClick={() => toggleSort('name')}>
+                    <ScrollArea className="directory-table-scroll-area">
+                      <Table className="directory-table" highlightOnHover stickyHeader verticalSpacing="sm" horizontalSpacing="md">
+                        <Table.Thead className="directory-table-head">
+                          <Table.Tr className="directory-table-header-row">
+                            <Table.Th className="directory-table-heading directory-table-heading-name">
+                              <Button className="sort-name-button" variant="subtle" size="compact-sm" px={0} onClick={() => toggleSort('name')}>
                                 Name{sort === 'nameAsc' ? ' ^' : sort === 'nameDesc' ? ' v' : ''}
                               </Button>
                             </Table.Th>
-                            <Table.Th>
-                              <Button variant="subtle" size="compact-sm" px={0} onClick={() => toggleSort('type')}>
+                            <Table.Th className="directory-table-heading directory-table-heading-type">
+                              <Button className="sort-type-button" variant="subtle" size="compact-sm" px={0} onClick={() => toggleSort('type')}>
                                 Type{sort === 'typeAsc' ? ' ^' : sort === 'typeDesc' ? ' v' : ''}
                               </Button>
                             </Table.Th>
-                            <Table.Th>
-                              <Button variant="subtle" size="compact-sm" px={0} onClick={() => toggleSort('size')}>
+                            <Table.Th className="directory-table-heading directory-table-heading-size">
+                              <Button className="sort-size-button" variant="subtle" size="compact-sm" px={0} onClick={() => toggleSort('size')}>
                                 Size{sort === 'sizeAsc' ? ' ^' : sort === 'sizeDesc' ? ' v' : ''}
                               </Button>
                             </Table.Th>
-                            <Table.Th>Share</Table.Th>
+                            <Table.Th className="directory-table-heading directory-table-heading-share">Share</Table.Th>
                           </Table.Tr>
                         </Table.Thead>
-                        <Table.Tbody>
+                        <Table.Tbody className="directory-table-body">
                           {visibleNodes.map((node, index) => (
                             <Table.Tr
+                              className="directory-table-row"
                               key={node.path}
                               bg={index === activeIndex ? 'var(--mantine-color-dark-light)' : undefined}
                               onClick={() => {
@@ -523,12 +558,13 @@ export function App() {
                                 openContextMenu(node.path, { x: event.clientX, y: event.clientY });
                               }}
                             >
-                              <Table.Td>
-                                <Group gap="xs" wrap="nowrap">
-                                  <ThemeIcon size="sm" radius="sm" variant="light" color={node.type === 'directory' ? 'blue' : 'gray'}>
+                              <Table.Td className="directory-table-cell directory-table-cell-name">
+                                <Group className="directory-entry-name-group" gap="xs" wrap="nowrap">
+                                  <ThemeIcon className="directory-entry-type-icon" size="sm" radius="sm" variant="light" color={node.type === 'directory' ? 'blue' : 'gray'}>
                                     {node.type === 'directory' ? 'D' : 'F'}
                                   </ThemeIcon>
                                   <Button
+                                    className="directory-entry-name-button"
                                     variant="subtle"
                                     px={0}
                                     c="inherit"
@@ -543,16 +579,16 @@ export function App() {
                                   </Button>
                                 </Group>
                               </Table.Td>
-                              <Table.Td>
-                                <Group gap="xs">
-                                  <Badge variant="outline" color={node.type === 'directory' ? 'blue' : 'gray'}>
+                              <Table.Td className="directory-table-cell directory-table-cell-type">
+                                <Group className="directory-entry-badges" gap="xs">
+                                  <Badge className="directory-entry-type-badge" variant="outline" color={node.type === 'directory' ? 'blue' : 'gray'}>
                                     {node.type}
                                   </Badge>
-                                  {hiddenPaths.includes(node.path) ? <Badge color="orange">hidden</Badge> : null}
+                                  {hiddenPaths.includes(node.path) ? <Badge className="directory-entry-hidden-badge" color="orange">hidden</Badge> : null}
                                 </Group>
                               </Table.Td>
-                              <Table.Td>{node.humanSize}</Table.Td>
-                              <Table.Td>{node.percentOfParent.toFixed(2)}%</Table.Td>
+                              <Table.Td className="directory-table-cell directory-table-cell-size">{node.humanSize}</Table.Td>
+                              <Table.Td className="directory-table-cell directory-table-cell-share">{node.percentOfParent.toFixed(2)}%</Table.Td>
                             </Table.Tr>
                           ))}
                         </Table.Tbody>
@@ -569,6 +605,7 @@ export function App() {
       <Menu opened={contextMenu !== null} onClose={() => setContextMenu(null)} withinPortal>
         <Menu.Target>
           <Box
+            className="context-menu-anchor"
             style={{
               position: 'fixed',
               left: contextMenu?.x ?? -9999,
@@ -579,12 +616,12 @@ export function App() {
             }}
           />
         </Menu.Target>
-        <Menu.Dropdown>
-          <Menu.Label>Item actions</Menu.Label>
-          <Menu.Item onClick={() => contextMenu && toggleHiddenPath(contextMenu.path)}>
+        <Menu.Dropdown className="item-context-menu">
+          <Menu.Label className="item-context-menu-label">Item actions</Menu.Label>
+          <Menu.Item className="toggle-hidden-menu-item" onClick={() => contextMenu && toggleHiddenPath(contextMenu.path)}>
             {contextMenu && hiddenPaths.includes(contextMenu.path) ? 'Unhide item' : 'Hide item from view'}
           </Menu.Item>
-          <Menu.Item onClick={() => setContextMenu(null)}>Cancel</Menu.Item>
+          <Menu.Item className="cancel-context-menu-item" onClick={() => setContextMenu(null)}>Cancel</Menu.Item>
         </Menu.Dropdown>
       </Menu>
     </AppShell>
@@ -669,12 +706,37 @@ function getInitialView(): ViewMode {
   return toViewMode(value);
 }
 
+function getInitialChartColorTheme(): ChartColorTheme {
+  if (typeof window === 'undefined') {
+    return 'ocean';
+  }
+
+  return toChartColorTheme(new URLSearchParams(window.location.search).get('colors'));
+}
+
 function toViewMode(value: string | null): ViewMode {
   if (value === 'sunburst' || value === 'flame-graph' || value === 'circle-packing') {
     return value;
   }
 
   return 'treemap';
+}
+
+function toChartColorTheme(value: string | null): ChartColorTheme {
+  if (value === 'blue-mono'
+    || value === 'amber-mono'
+    || value === 'forest'
+    || value === 'sunset'
+    || value === 'aurora'
+    || value === 'candy'
+    || value === 'terminal'
+    || value === 'jewel'
+    || value === 'volcanic'
+    || value === 'pastel') {
+    return value;
+  }
+
+  return 'ocean';
 }
 
 function getViewLabel(view: ViewMode) {

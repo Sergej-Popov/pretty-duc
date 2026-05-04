@@ -4,10 +4,12 @@ import ReactECharts from 'echarts-for-react';
 
 export type SunburstHighlightMode = 'ancestor' | 'descendant';
 export type ChartViewMode = 'treemap' | 'sunburst' | 'flame-graph' | 'circle-packing';
+export type ChartColorTheme = 'ocean' | 'blue-mono' | 'amber-mono' | 'forest' | 'sunset' | 'aurora' | 'candy' | 'terminal' | 'jewel' | 'volcanic' | 'pastel';
 
 export function ExplorerChart({
   nodes,
   view,
+  colorTheme,
   sunburstHighlightMode,
   onSelect,
   onContextMenu,
@@ -17,6 +19,7 @@ export function ExplorerChart({
 }: {
   nodes: Array<Record<string, unknown>>;
   view: ChartViewMode;
+  colorTheme: ChartColorTheme;
   sunburstHighlightMode: SunburstHighlightMode;
   onSelect: (path: string) => void;
   onContextMenu: (path: string, position: { x: number; y: number }) => void;
@@ -28,24 +31,9 @@ export function ExplorerChart({
   const { colorScheme } = useMantineColorScheme();
   const textColor = colorScheme === 'dark' ? theme.white : theme.black;
   const borderColor = colorScheme === 'dark' ? theme.colors.dark[4] : theme.colors.gray[3];
-  const palette = [
-    theme.colors.blue[6],
-    theme.colors.blue[4],
-    theme.colors.cyan[6],
-    theme.colors.cyan[4],
-    theme.colors.indigo[6],
-    theme.colors.indigo[4],
-    theme.colors.grape[6],
-    theme.colors.grape[4],
-    theme.colors.violet[6],
-    theme.colors.violet[4],
-    theme.colors.teal[6],
-    theme.colors.teal[4],
-    theme.colors.lime[5],
-    theme.colors.orange[5]
-  ];
+  const palette = getChartPalette(colorTheme, theme);
   const hiddenColor = colorScheme === 'dark' ? theme.colors.gray[7] : theme.colors.gray[5];
-  const circlePackingRootColor = colorScheme === 'dark' ? theme.colors.blue[9] : theme.colors.blue[0];
+  const circlePackingRootColor = getCirclePackingRootColor(colorTheme, colorScheme, theme);
   const tintColor = theme.white;
   const decal = useDecal
     ? {
@@ -128,7 +116,7 @@ export function ExplorerChart({
       return {
         type: 'custom',
         id: 'storage-map',
-        renderItem: renderFlameGraphItem,
+        renderItem: (params: unknown, api: any) => renderFlameGraphItem(params, api, decal),
         encode: { x: [1, 2], y: 0 },
         data: flameData.items
       };
@@ -138,7 +126,7 @@ export function ExplorerChart({
       type: 'custom',
       id: 'storage-map',
       coordinateSystem: 'none',
-      renderItem: renderCirclePackingItem,
+      renderItem: (params: unknown, api: any) => renderCirclePackingItem(params, api, decal),
       progressive: 0,
       data: circleData
     };
@@ -178,8 +166,9 @@ export function ExplorerChart({
   };
 
   return (
-    <Box pos="relative">
+    <Box className={`explorer-chart explorer-chart-${view}`} pos="relative">
       <ReactECharts
+        className="explorer-chart-echarts"
         style={{ height: 420, width: '100%' }}
         option={option}
         notMerge
@@ -201,6 +190,7 @@ export function ExplorerChart({
 
       {view === 'sunburst' ? (
         <ActionIcon
+          className="sunburst-up-button"
           variant="default"
           radius="xl"
           size={46}
@@ -313,7 +303,7 @@ function appendFlameNode(
   });
 }
 
-function renderFlameGraphItem(_params: unknown, api: any) {
+function renderFlameGraphItem(_params: unknown, api: any, decal?: Record<string, unknown>) {
   const level = api.value(0);
   const start = api.coord([api.value(1), level]);
   const end = api.coord([api.value(2), level]);
@@ -321,6 +311,9 @@ function renderFlameGraphItem(_params: unknown, api: any) {
   const width = Math.max(0, end[0] - start[0]);
   const style = api.style();
   style.fill = api.visual('color');
+  if (decal) {
+    style.decal = decal;
+  }
 
   return {
     type: 'rect',
@@ -445,7 +438,7 @@ function placeChildCircles(nodes: Array<Record<string, unknown>>, centerX: numbe
   });
 }
 
-function renderCirclePackingItem(_params: unknown, api: any) {
+function renderCirclePackingItem(_params: unknown, api: any, decal?: Record<string, unknown>) {
   const width = api.getWidth();
   const height = api.getHeight();
   const size = Math.min(width, height);
@@ -459,6 +452,9 @@ function renderCirclePackingItem(_params: unknown, api: any) {
   const style = api.style();
   style.fill = api.visual('color');
   style.opacity = depth === 0 ? 1 : depth === 1 ? 0.82 : 0.9;
+  if (decal) {
+    style.decal = decal;
+  }
 
   return {
     type: 'circle',
@@ -561,4 +557,94 @@ function parseHexColor(color: string) {
 
 function toHex(value: number) {
   return value.toString(16).padStart(2, '0');
+}
+
+function getChartPalette(colorTheme: ChartColorTheme, theme: ReturnType<typeof useMantineTheme>) {
+  switch (colorTheme) {
+    case 'blue-mono':
+      return [theme.colors.blue[8], theme.colors.blue[7], theme.colors.blue[6], theme.colors.blue[5], theme.colors.blue[4], theme.colors.cyan[5]];
+    case 'amber-mono':
+      return [theme.colors.orange[8], theme.colors.orange[7], theme.colors.yellow[7], theme.colors.yellow[6], theme.colors.orange[5], theme.colors.red[5]];
+    case 'forest':
+      return ['#1B4332', '#2D6A4F', '#40916C', '#52B788', '#74C69D', '#95D5B2', '#B7E4C7'];
+    case 'sunset':
+      return ['#2B1055', '#571089', '#9A208C', '#E11299', '#FF6D28', '#FCE700', '#FFB84C'];
+    case 'aurora':
+      return ['#172A3A', '#004346', '#09BC8A', '#75DDDD', '#B8F2E6', '#DDFBD2', '#F2F3AE'];
+    case 'candy':
+      return ['#FF70A6', '#FF9770', '#FFD670', '#E9FF70', '#70D6FF', '#B388EB', '#F7A8B8'];
+    case 'terminal':
+      return ['#0B3D20', '#116530', '#21A179', '#00D084', '#7CFF6B', '#C6FF00', '#E8FFB7'];
+    case 'jewel':
+      return ['#0B132B', '#3A0CA3', '#4361EE', '#4CC9F0', '#2EC4B6', '#FF9F1C', '#E71D36'];
+    case 'volcanic':
+      return ['#140F0F', '#4A0F0F', '#8A1C0F', '#C73E1D', '#FF6B35', '#FFB627', '#FFE66D'];
+    case 'pastel':
+      return ['#A0C4FF', '#BDB2FF', '#FFC6FF', '#FFADAD', '#FFD6A5', '#FDFFB6', '#CAFFBF', '#9BF6FF'];
+    case 'ocean':
+      return [
+        theme.colors.blue[6],
+        theme.colors.blue[4],
+        theme.colors.cyan[6],
+        theme.colors.cyan[4],
+        theme.colors.indigo[6],
+        theme.colors.indigo[4],
+        theme.colors.grape[6],
+        theme.colors.grape[4],
+        theme.colors.violet[6],
+        theme.colors.violet[4],
+        theme.colors.teal[6],
+        theme.colors.teal[4],
+        theme.colors.lime[5],
+        theme.colors.orange[5]
+      ];
+  }
+}
+
+function getCirclePackingRootColor(colorTheme: ChartColorTheme, colorScheme: 'light' | 'dark' | 'auto', theme: ReturnType<typeof useMantineTheme>) {
+  if (colorScheme === 'dark') {
+    switch (colorTheme) {
+      case 'amber-mono':
+      case 'sunset':
+        return '#4A2505';
+      case 'forest':
+      case 'terminal':
+        return '#0B2A1A';
+      case 'candy':
+        return '#3A1538';
+      case 'jewel':
+        return '#151A3A';
+      case 'volcanic':
+        return '#2A1008';
+      case 'pastel':
+        return '#2D2438';
+      case 'aurora':
+        return '#062D2F';
+      case 'blue-mono':
+      case 'ocean':
+        return theme.colors.blue[9];
+    }
+  }
+
+  switch (colorTheme) {
+    case 'amber-mono':
+    case 'sunset':
+      return '#FFF3BF';
+    case 'forest':
+    case 'terminal':
+      return '#D8F3DC';
+    case 'candy':
+      return '#FFE3EC';
+    case 'jewel':
+      return '#E7F5FF';
+    case 'volcanic':
+      return '#FFE8CC';
+    case 'pastel':
+      return '#F8F0FC';
+    case 'aurora':
+      return '#D7FAF4';
+    case 'blue-mono':
+    case 'ocean':
+      return theme.colors.blue[0];
+  }
 }
