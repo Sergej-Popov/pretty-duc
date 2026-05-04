@@ -1,42 +1,54 @@
 # Pretty Duc
 
-AI disclaimer: This project is created completely with AI.  
-Tools used:
-* OpenCode + GPT5.4;
-* Gemini CLI + 3.1 pro;  
-* Ollama + Minimax M2.7
-* OpenCode Go + DeepSee V4 Pro
+Web UI for exploring disk usage. Point it at a [Duc](https://github.com/zevv/duc) database and browse with treemaps, sunbursts, flame graphs, filterable tables, and keyboard-driven navigation.
 
-Pretty Duc is a modern web UI and JSON API for browsing [Duc](https://github.com/zevv/duc) disk usage data. It runs as a separate Docker service, reads a shared Duc database volume, and uses the `duc` CLI as its only integration layer.
+## Screenshots
 
+<p align="center">
+  <img src="images/treemap.png" width="32%" alt="Treemap view" />
+  <img src="images/screenshot-sunburst.png" width="32%" alt="Sunburst view" />
+  <img src="images/screenshot-table-controls.png" width="32%" alt="Table and controls" />
+</p>
 
-## Features
+## Quick start
 
-- Fastify API for health, database info, directory children, and guarded tree expansion
-- React + Mantine explorer UI with breadcrumb navigation, drill-down, treemap, and sunburst views
-- Search/filter, dark mode, copy path, refresh, largest items panel, and keyboard navigation
-- Docker deployment alongside a separate Duc scanner service
-- Integration tests designed to run in Docker containers
+```bash
+git clone <repo-url> && cd pretty-duc
+cp docker/compose.example.yml docker-compose.yml
+# edit volumes in docker-compose.yml to point at your Duc database and scan root
+docker compose up --build
+```
 
-## Stack
+Open `http://localhost:3000`.
 
-- Backend: Node.js + TypeScript + Fastify
-- Frontend: React + Vite + TypeScript
-- UI: Mantine
-- Visualization: Apache ECharts
-- Tooling: bun
-- Container runtime: Docker
+## What you can do
+
+- **Browse** — navigate directories via breadcrumbs, the directory table, or by clicking chart segments. Keyboard shortcuts: Arrow keys to move, Enter to drill in, Backspace to go up.
+- **Visualize** — 6 chart types: treemap, sunburst, flame graph, circle packing, tree, and radial tree. 11 color themes. Toggle labels, decal patterns, and depth levels.
+- **Filter** — type to filter the current directory by name. Arrow keys to pick suggestions, Enter to drill into a directory from the dropdown.
+- **Bookmark** — star a directory from the breadcrumb bar or right-click context menu. Bookmarks persist across sessions with editable labels.
+- **Hide items** — right-click any item to hide it from charts and the table. Reset hidden items from the controls panel.
 
 ## Environment variables
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `DUC_DATABASE` | `/database/duc.db` | Path to Duc DB |
-| `DUC_ROOT` | `/scan/root` | Root path exposed by Pretty Duc |
+| `DUC_DATABASE` | `/database/duc.db` | Path to Duc database |
+| `DUC_ROOT` | `/scan/root` | Root path scanned by Duc |
 | `PORT` | `3000` | HTTP server port |
-| `DUC_BIN` | `duc` | Duc executable path |
-| `DUC_MOCK_ROOT` | unset | Local fixture root for mock Duc mode |
-| `DEFAULT_MIN_SIZE` | unset | Optional minimum size filter in bytes |
+| `DUC_BIN` | `duc` | Duc binary path |
+| `DUC_MOCK_ROOT` | unset | Fixture root for mock mode |
+| `DEFAULT_MIN_SIZE` | unset | Min file size filter in bytes |
+| `ENABLE_TREE_API` | `false` | Enables `/api/tree` endpoint |
+| `CONFIG_FILE` | `pretty-duc-config.json` | Path to runtime config file |
+
+## Docker
+
+```bash
+docker compose -f docker/compose.example.yml up --build
+```
+
+This starts a Duc scanner container and the Pretty Duc UI/API service. Only the scanner needs host filesystem access. Pretty Duc mounts the database read-only.
 
 ## Local development
 
@@ -46,190 +58,52 @@ bun run build
 bun run test
 ```
 
-Run the API and web app separately during development:
+Run API and web app separately:
 
 ```bash
-bun run dev:api
-bun run dev:web
+bun run dev:api     # API at http://localhost:3000
+bun run dev:web     # UI at http://localhost:5173 (proxies /api)
 ```
 
-- API: `http://localhost:3000`
-- Web: `http://localhost:5173`
+### Mock mode
 
-The Vite dev server proxies `/api` to the API server.
-
-### Local mock mode
-
-Use the built-in mock Duc mode to exercise the API and UI without a real Duc binary or database:
+No Duc binary or database needed:
 
 ```bash
-bun run dev:mock
+bun run dev:mock    # API at :3001, UI at :5173
 ```
 
-This starts:
-
-- API on `http://localhost:3001`
-- Vite UI on `http://localhost:5173`
-
-Mock mode keeps the existing API contract and emulates the same Duc commands the backend already uses:
-
-- `duc --version`
-- `duc info -d <db>`
-- `duc ls -b -d <db> -F -- <path>`
-- `duc json -d <db> -d <levels> -- <path>`
-
-The mock scan root lives in `tests/fixtures/mock-scan-root` and includes several nested layers for browsing:
-
-- `team-space/alpha/api/logs`
-- `team-space/alpha/web/dist`
-- `team-space/beta/etl/output/2026-05-02`
-- `media/raw/camera-a/day-01`
-- `media/exports/2026/stills`
-- `archives/2024/quarterly`
-- `scratch/cache/chunks`
-
-Run only the API in mock mode if you want to point another client at it:
-
-```bash
-bun run dev:mock:api
-```
-
-Mock API endpoint: `http://localhost:3001`
-
-## Docker usage
-
-Use the example stack in `docker/compose.example.yml`:
-
-```bash
-docker compose -f docker/compose.example.yml up --build
-```
-
-This starts:
-
-- `duc`: a separate scanner container writing `/database/duc.db`
-- `pretty-duc`: the UI/API service mounting the Duc database read-only
-
-Pretty Duc does not need host filesystem access. Only the scanner service reads the host scan root.
-
-## Integration test stack
-
-Run containerized integration tests with:
-
-```bash
-bun run test:integration
-```
-
-On Windows, this command forwards into WSL so Docker uses the Linux daemon there. On WSL/Linux, it runs Compose directly.
-
-Manual WSL/Linux form:
-
-```bash
-docker compose -f docker/compose.integration.yml up --build --abort-on-container-exit --exit-code-from test
-```
-
-The integration stack:
-
-- scans `tests/fixtures/fs` into a shared Duc database volume
-- starts Pretty Duc against that volume
-- runs black-box tests from a dedicated test container
+Uses `tests/fixtures/mock-scan-root` — a deterministic filesystem structure with nested directories for testing and development.
 
 ## API
 
 ### `GET /api/health`
-
-Returns service and database status.
-
-```json
-{
-  "ok": true,
-  "ducAvailable": true,
-  "databaseReadable": true,
-  "database": "/database/duc.db",
-  "root": "/scan/root"
-}
-```
+Service and database status.
 
 ### `GET /api/info`
-
-Runs `duc info -d /database/duc.db` and returns raw output plus best-effort parsed metadata.
+Raw `duc info` output with parsed metadata.
 
 ### `GET /api/children?path=/scan/root&levels=2&sort=sizeDesc`
-
-Lists immediate children or recursively expands to the requested depth using repeated `duc ls` calls.
-
-Example child shape:
-
-```json
-{
-  "name": "var",
-  "path": "/scan/root/var",
-  "sizeBytes": 12884901888,
-  "humanSize": "12.0 GB",
-  "type": "directory",
-  "percentOfParent": 42.7,
-  "hasChildren": true
-}
-```
+Primary browsing endpoint. Returns directory children, supports recursive expansion (up to 6 levels), size filtering (`minSize`), and sorting (`sizeDesc` / `nameAsc`).
 
 ### `GET /api/tree?path=/scan/root/var&levels=2`
+Subtree endpoint. Disabled by default (enable with `ENABLE_TREE_API`).
 
-Returns a bounded subtree for explicit paths. This implementation uses guarded repeated `duc ls` calls instead of `duc json` for consistency and safer payload control.
-
-## Safety notes
-
-- Paths are canonicalized and must stay at or below `DUC_ROOT`
-- Arbitrary Duc arguments are never accepted from clients
-- Duc commands are executed without shell interpolation
-- Timeouts, node caps, and payload caps protect the backend from oversized requests
-- Reverse proxy or basic auth is recommended for internet-facing deployments
-
-### Reverse proxy/basic auth example
-
-Terminate TLS and enforce auth in front of Pretty Duc with Nginx, Caddy, or Traefik. A minimal Nginx pattern:
-
-- proxy `/:` to `pretty-duc:3000`
-- add HTTP basic auth with `auth_basic`
-- restrict access by IP or VPN where possible
-
-## Limits and defaults
-
-- Duc timeout per command: `5000ms`
-- Recursive request budget: `15000ms`
-- `/api/children` max levels: `4`
-- `/api/tree` max levels: `2`
-- Max children per directory: `500`
-- Max recursive nodes for `/api/children`: `2000`
-- Max nodes for `/api/tree`: `200`
-
-## Notes on Duc integration
-
-- Normal browsing uses `duc ls -b -d <db> -F <path>`
-- Explicit subtree visualization uses `duc json` (optional)
-- Pretty Duc does not parse the Duc database directly
-- Pretty Duc avoids `duc json` for routine navigation or large roots
-
-## Screenshots
-
-- Overview: `docs/screenshots/overview.svg`
-
-## Testing
-
-Unit and UI tests:
-
-```bash
-bun run test
-```
-
-Container integration tests:
+## Integration tests
 
 ```bash
 bun run test:integration
 ```
 
-Manual WSL/Linux form:
+Spins up Docker containers: a scanner indexing `tests/fixtures/fs`, Pretty Duc against that volume, and a test runner making black-box API assertions.
 
-```bash
-docker compose -f docker/compose.integration.yml up --build --abort-on-container-exit --exit-code-from test
-```
--exit-code-from test
-```
+## Troubleshooting
+
+**"Response likely exceeds configured payload budget" (413)**
+Your scan produces too many nodes for the response limit. Increase `maxChildrenResponseBytes` or `maxRecursiveNodes` in your config file. Reduce `depth` in the UI to load fewer levels at once.
+
+**"Path was not found in Duc index" (404)**
+The directory exists on disk but hasn't been indexed. Re-run the Duc scanner or try a parent directory.
+
+**"Cannot navigate above root directory"**
+You're trying to browse above `DUC_ROOT`. All paths are restricted to the configured scan root.
