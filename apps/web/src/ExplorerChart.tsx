@@ -16,7 +16,8 @@ export function ExplorerChart({
   onChartUp,
   canChartGoUp,
   useDecal,
-  hideLabels
+  hideLabels,
+  dirsOnlyLabels
 }: {
   nodes: Array<Record<string, unknown>>;
   view: ChartViewMode;
@@ -28,6 +29,7 @@ export function ExplorerChart({
   canChartGoUp: boolean;
   useDecal: boolean;
   hideLabels: boolean;
+  dirsOnlyLabels: boolean;
 }) {
   const theme = useMantineTheme();
   const { colorScheme } = useMantineColorScheme();
@@ -46,9 +48,17 @@ export function ExplorerChart({
         color: 'rgba(255,255,255,0.2)'
       }
     : undefined;
+  const visibleLabels = !hideLabels;
+  const showFileLabels = !(visibleLabels && dirsOnlyLabels);
+
+  const chartNodes = useMemo(() => {
+    if (!visibleLabels || !dirsOnlyLabels) return nodes;
+    return hideLabelsOnFileNodes(nodes);
+  }, [nodes, dirsOnlyLabels, visibleLabels]);
+
   const styledNodes = useMemo(
-    () => applyChartNodeStyles(nodes, { hiddenColor, decal, palette, tintColor }, view),
-    [decal, hiddenColor, nodes, palette, tintColor, view]
+    () => applyChartNodeStyles(chartNodes, { hiddenColor, decal, palette, tintColor }, view),
+    [decal, hiddenColor, chartNodes, palette, tintColor, view]
   );
   const flameData = useMemo(() => toFlameGraphData(styledNodes, palette, decal), [decal, palette, styledNodes]);
   const circleData = useMemo(
@@ -198,7 +208,7 @@ export function ExplorerChart({
       return {
         type: 'custom',
         id: 'storage-map',
-        renderItem: (params: unknown, api: any) => renderFlameGraphItem(params, api, decal, hideLabels),
+        renderItem: (params: unknown, api: any) => renderFlameGraphItem(params, api, decal, hideLabels, dirsOnlyLabels),
         encode: { x: [1, 2], y: 0 },
         data: flameData.items
       };
@@ -208,7 +218,7 @@ export function ExplorerChart({
       type: 'custom',
       id: 'storage-map',
       coordinateSystem: 'none',
-      renderItem: (params: unknown, api: any) => renderCirclePackingItem(params, api, decal, hideLabels),
+      renderItem: (params: unknown, api: any) => renderCirclePackingItem(params, api, decal, hideLabels, dirsOnlyLabels),
       progressive: 0,
       data: circleData
     };
@@ -350,6 +360,18 @@ function applyChartNodeStyles(
   });
 }
 
+function hideLabelsOnFileNodes(nodes: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  return nodes.map((node) => {
+    const children = Array.isArray(node.children)
+      ? hideLabelsOnFileNodes(node.children as Array<Record<string, unknown>>)
+      : undefined;
+    if (node.type === 'file') {
+      return { ...node, label: { show: false }, upperLabel: { show: false }, children };
+    }
+    return { ...node, children };
+  });
+}
+
 function toFlameGraphData(nodes: Array<Record<string, unknown>>, palette: string[], decal?: Record<string, unknown>) {
   const total = nodes.reduce((sum, node) => sum + getNodeValue(node), 0);
   const items: Array<Record<string, unknown>> = [];
@@ -387,7 +409,7 @@ function appendFlameNode(
   items.push({
     name,
     path: getNodePath(node),
-    value: [level, start, start + value, name, total > 0 ? (value / total) * 100 : 0],
+    value: [level, start, start + value, name, total > 0 ? (value / total) * 100 : 0, node.type ?? ''],
     itemStyle: { color: nodeColor, ...(decal ? { decal } : null) }
   });
 
@@ -402,7 +424,7 @@ function appendFlameNode(
   });
 }
 
-function renderFlameGraphItem(_params: unknown, api: any, decal?: Record<string, unknown>, hideLabels?: boolean) {
+function renderFlameGraphItem(_params: unknown, api: any, decal?: Record<string, unknown>, hideLabels?: boolean, dirsOnlyLabels?: boolean) {
   const level = api.value(0);
   const start = api.coord([api.value(1), level]);
   const end = api.coord([api.value(2), level]);
@@ -413,6 +435,10 @@ function renderFlameGraphItem(_params: unknown, api: any, decal?: Record<string,
   if (decal) {
     style.decal = decal;
   }
+
+  const label = !hideLabels ? api.value(3) : '';
+  const nodeType = String(api.value(5) ?? '');
+  const showLabel = typeof label === 'string' && label.length > 0 && !(dirsOnlyLabels && nodeType === 'file');
 
   return {
     type: 'rect',
@@ -426,10 +452,10 @@ function renderFlameGraphItem(_params: unknown, api: any, decal?: Record<string,
     style,
     emphasis: { style: { stroke: '#000', lineWidth: 1 } },
     textConfig: { position: 'insideLeft' },
-    ...(!hideLabels ? {
+    ...(showLabel ? {
       textContent: {
         style: {
-          text: api.value(3),
+          text: String(label),
           fill: '#111',
           width: Math.max(0, width - 6),
           overflow: 'truncate',
@@ -447,7 +473,7 @@ function toCirclePackingData(nodes: Array<Record<string, unknown>>, palette: str
   items.push({
     name: '',
     path: '',
-    value: [50, 50, 49, 0, ''],
+    value: [50, 50, 49, 0, '', 'directory'],
     valueBytes: total,
     total,
     itemStyle: {
@@ -486,7 +512,7 @@ function appendCircleNode(
   items.push({
     name: getNodeName(node),
     path: getNodePath(node),
-    value: [x, y, radius, depth, getNodeName(node)],
+    value: [x, y, radius, depth, getNodeName(node), node.type ?? ''],
     valueBytes: getNodeValue(node),
     total,
     itemStyle: { color: nodeColor, ...(decal ? { decal } : null) }
@@ -543,7 +569,7 @@ function placeChildCircles(nodes: Array<Record<string, unknown>>, centerX: numbe
   });
 }
 
-function renderCirclePackingItem(_params: unknown, api: any, decal?: Record<string, unknown>, hideLabels?: boolean) {
+function renderCirclePackingItem(_params: unknown, api: any, decal?: Record<string, unknown>, hideLabels?: boolean, dirsOnlyLabels?: boolean) {
   const width = api.getWidth();
   const height = api.getHeight();
   const size = Math.min(width, height);
@@ -554,12 +580,15 @@ function renderCirclePackingItem(_params: unknown, api: any, decal?: Record<stri
   const radius = (api.value(2) / 100) * size;
   const depth = Number(api.value(3));
   const label = String(api.value(4) ?? '');
+  const nodeType = String(api.value(5) ?? '');
   const style = api.style();
   style.fill = api.visual('color');
   style.opacity = depth === 0 ? 1 : depth === 1 ? 0.82 : 0.9;
   if (decal) {
     style.decal = decal;
   }
+
+  const showLabel = !hideLabels && radius > 14 && label.length > 0 && !(dirsOnlyLabels && nodeType === 'file');
 
   return {
     type: 'circle',
@@ -568,7 +597,7 @@ function renderCirclePackingItem(_params: unknown, api: any, decal?: Record<stri
     style,
     emphasis: { style: { shadowBlur: 16, shadowColor: 'rgba(0,0,0,0.25)', lineWidth: 2, stroke: '#111' } },
     textConfig: { position: 'inside' },
-    ...(!hideLabels ? {
+    ...(showLabel ? {
       textContent: {
         style: {
           text: radius > 14 ? label : '',

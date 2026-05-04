@@ -7,6 +7,7 @@ import {
   Breadcrumbs,
   Burger,
   Button,
+  Checkbox,
   Code,
   CopyButton,
   Divider,
@@ -52,6 +53,10 @@ export function App() {
   const [mobileOpened, { toggle }] = useDisclosure();
   const [settingsOpened, { open: openSettings, close: closeSettings }] = useDisclosure(false);
   const [helpOpened, { open: openHelp, close: closeHelp }] = useDisclosure(false);
+  const [treeConfirmOpened, { open: openTreeConfirm, close: closeTreeConfirm }] = useDisclosure(false);
+  const [infoOpened, { open: openInfoModal, close: closeInfoModal }] = useDisclosure(false);
+  const [skipTreeWarning, setSkipTreeWarning] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('skipTreeWarning') === 'true' : false);
+  const [treeConfirmDontAsk, setTreeConfirmDontAsk] = useState(false);
   const [useApparentSize, setUseApparentSize] = useState(true);
   const [useExactSizes, setUseExactSizes] = useState(false);
   const [useFileCount, setUseFileCount] = useState(false);
@@ -64,7 +69,8 @@ export function App() {
   const [data, setData] = useState<ChildrenResponse | TreeResponse | null>(null);
   const [treeMode, setTreeMode] = useState(false);
   const [health, setHealth] = useState<string>('Checking service');
-  const [info, setInfo] = useState<string>('Loading Duc metadata');
+  const [deployEnv, setDeployEnv] = useState<string | null>(null);
+  const [info, setInfo] = useState<InfoResponse | null>(null);
   const [rootPath, setRootPath] = useState('/scan/root');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -75,6 +81,7 @@ export function App() {
   const [contextMenu, setContextMenu] = useState<{ path: string; x: number; y: number } | null>(null);
   const [useDecal, setUseDecal] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('useDecal') === 'true' : false);
   const [showLabels, setShowLabels] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('showLabels') !== 'false' : true);
+  const [dirsOnlyLabels, setDirsOnlyLabels] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('dirsOnlyLabels') !== 'false' : true);
   const [sunburstHighlightMode, setSunburstHighlightMode] = useState<SunburstHighlightMode>(() => {
     if (typeof window === 'undefined') return 'ancestor';
     return (localStorage.getItem('sunburstHighlightMode') as SunburstHighlightMode) || 'ancestor';
@@ -195,6 +202,10 @@ export function App() {
   }, [showLabels]);
 
   useEffect(() => {
+    localStorage.setItem('dirsOnlyLabels', String(dirsOnlyLabels));
+  }, [dirsOnlyLabels]);
+
+  useEffect(() => {
     localStorage.setItem('hiddenPaths', JSON.stringify(hiddenPaths));
   }, [hiddenPaths]);
 
@@ -211,12 +222,13 @@ export function App() {
       .then((result) => {
         setHealth(result.ok ? 'Connected' : 'Degraded');
         setRootPath(result.root);
+        setDeployEnv(result.deployEnv ?? null);
       })
       .catch(() => setHealth('Health check failed'));
 
     fetchInfo()
-      .then((result) => setInfo(result.raw.split('\n')[0] ?? 'Duc metadata loaded'))
-      .catch(() => setInfo('Duc info unavailable'));
+      .then((result) => setInfo(result))
+      .catch(() => setInfo(null));
   }, []);
 
   useEffect(() => {
@@ -352,6 +364,15 @@ export function App() {
   }
 
   async function loadTree() {
+    if (!skipTreeWarning) {
+      setTreeConfirmDontAsk(false);
+      openTreeConfirm();
+      return;
+    }
+    await doLoadTree();
+  }
+
+  async function doLoadTree() {
     setLoading(true);
     setError(null);
     setTreeMode(true);
@@ -365,6 +386,15 @@ export function App() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function confirmLoadTree() {
+    if (treeConfirmDontAsk) {
+      localStorage.setItem('skipTreeWarning', 'true');
+      setSkipTreeWarning(true);
+    }
+    closeTreeConfirm();
+    doLoadTree();
   }
 
   function selectByPath(selectedPath: string) {
@@ -410,8 +440,8 @@ export function App() {
 
   const isCurrentPathBookmarked = bookmarks.some(b => b.path === path);
 
-  const navStateRef = useRef({ visibleNodes, highlighted, navigate, navigateUp, activeIndex, settingsOpened, helpOpened, contextMenu, useApparentSize, useExactSizes, useFileCount, sort, showHiddenItems, useDecal, showLabels });
-  navStateRef.current = { visibleNodes, highlighted, navigate, navigateUp, activeIndex, settingsOpened, helpOpened, contextMenu, useApparentSize, useExactSizes, useFileCount, sort, showHiddenItems, useDecal, showLabels };
+  const navStateRef = useRef({ visibleNodes, highlighted, navigate, navigateUp, activeIndex, settingsOpened, helpOpened, treeConfirmOpened, infoOpened, contextMenu, useApparentSize, useExactSizes, useFileCount, sort, showHiddenItems, useDecal, showLabels, dirsOnlyLabels });
+  navStateRef.current = { visibleNodes, highlighted, navigate, navigateUp, activeIndex, settingsOpened, helpOpened, treeConfirmOpened, infoOpened, contextMenu, useApparentSize, useExactSizes, useFileCount, sort, showHiddenItems, useDecal, showLabels, dirsOnlyLabels };
 
   useEffect(() => {
     function onGlobalKeyDown(e: globalThis.KeyboardEvent) {
@@ -424,7 +454,7 @@ export function App() {
       }
 
       const state = navStateRef.current;
-      if (state.settingsOpened || state.helpOpened || state.contextMenu) {
+      if (state.settingsOpened || state.helpOpened || state.treeConfirmOpened || state.infoOpened || state.contextMenu) {
         return;
       }
 
@@ -539,6 +569,13 @@ export function App() {
         return;
       }
 
+      if (e.key === 'o') {
+        e.preventDefault();
+        setDirsOnlyLabels((current) => !current);
+        notifications.show({ message: state.dirsOnlyLabels ? 'Showing all labels' : 'Showing directory labels only', color: 'dark' });
+        return;
+      }
+
       if (e.key === 'f') {
         e.preventDefault();
         inputRef.current?.focus();
@@ -569,12 +606,22 @@ export function App() {
                 <Badge className="service-health-badge" variant="light" color={health === 'Connected' ? 'green' : 'orange'}>
                   {health}
                 </Badge>
+                {deployEnv && <Badge variant="light" color="yellow">{deployEnv.toUpperCase()}</Badge>}
               </Group>
             </Box>
           </Group>
 
           <Group className="app-header-actions" gap="xs">
-            <Badge className="duc-info-badge" variant="dot" color="gray" visibleFrom="sm">{info}</Badge>
+            <Tooltip label="Database info">
+              <Badge
+                className="duc-info-badge"
+                variant="dot"
+                color={info ? 'blue' : 'gray'}
+                visibleFrom="sm"
+                style={{ cursor: 'pointer' }}
+                onClick={openInfoModal}
+              >{infoSummary(info)}</Badge>
+            </Tooltip>
             <Tooltip label="Settings">
               <ActionIcon
                 className="settings-button"
@@ -858,6 +905,13 @@ export function App() {
                   onChange={(event) => setShowLabels(event.currentTarget.checked)}
                   label="Show labels"
                 />
+                <Switch
+                  className="dirs-only-labels-switch"
+                  checked={dirsOnlyLabels}
+                  onChange={(event) => setDirsOnlyLabels(event.currentTarget.checked)}
+                  label="Directories only"
+                  disabled={!showLabels}
+                />
                 {view === 'sunburst' ? (
                   <Switch
                     className="sunburst-highlight-mode-switch"
@@ -1015,6 +1069,7 @@ export function App() {
                         canChartGoUp={view === 'sunburst' && sunburstRootPath !== null}
                         useDecal={useDecal}
                         hideLabels={!showLabels}
+                        dirsOnlyLabels={dirsOnlyLabels}
                       />
                   </Box>
                 </Paper>
@@ -1176,6 +1231,52 @@ export function App() {
           <Menu.Item className="cancel-context-menu-item" onClick={() => setContextMenu(null)}>Cancel</Menu.Item>
         </Menu.Dropdown>
       </Menu>
+      <Modal opened={treeConfirmOpened} onClose={closeTreeConfirm} title="Load whole tree" size="md">
+        <Stack>
+          <Text>
+            This loads the full recursive directory tree via <Code>duc json</Code>.
+            On deep or large directory structures this can cause significant performance
+            issues — the request may take a long time or produce a very large response.
+          </Text>
+          <Checkbox
+            label="Do not show this warning again"
+            checked={treeConfirmDontAsk}
+            onChange={(event) => setTreeConfirmDontAsk(event.currentTarget.checked)}
+          />
+          <Group justify="flex-end">
+            <Button variant="default" onClick={closeTreeConfirm}>Cancel</Button>
+            <Button color="yellow" onClick={confirmLoadTree}>Load tree</Button>
+          </Group>
+        </Stack>
+      </Modal>
+      <Modal opened={infoOpened} onClose={closeInfoModal} title="Database info" size="lg">
+        {info && info.paths.length > 0 ? (
+          <Table>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Path</Table.Th>
+                <Table.Th>Files</Table.Th>
+                <Table.Th>Dirs</Table.Th>
+                <Table.Th>Size</Table.Th>
+                <Table.Th>Last scan</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {info.paths.map((p) => (
+                <Table.Tr key={p.path}>
+                  <Table.Td><Code>{p.path}</Code></Table.Td>
+                  <Table.Td>{p.files.toLocaleString()}</Table.Td>
+                  <Table.Td>{p.dirs.toLocaleString()}</Table.Td>
+                  <Table.Td>{p.sizeBytes > 0 ? formatBytes(p.sizeBytes) : '-'}</Table.Td>
+                  <Table.Td>{p.lastScanAt}</Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        ) : (
+          <Text c="dimmed">{info ? 'No indexed paths found.' : 'Duc info unavailable.'}</Text>
+        )}
+      </Modal>
       <SettingsModal opened={settingsOpened} onClose={closeSettings} />
       <Modal opened={helpOpened} onClose={closeHelp} title="Keyboard shortcuts" size="md">
         <Table>
@@ -1201,6 +1302,7 @@ export function App() {
             <Table.Tr><Table.Td><Kbd>i</Kbd></Table.Td><Table.Td>Show / hide hidden items</Table.Td></Table.Tr>
             <Table.Tr><Table.Td><Kbd>d</Kbd></Table.Td><Table.Td>Toggle decal pattern</Table.Td></Table.Tr>
             <Table.Tr><Table.Td><Kbd>l</Kbd></Table.Td><Table.Td>Toggle chart labels</Table.Td></Table.Tr>
+            <Table.Tr><Table.Td><Kbd>o</Kbd></Table.Td><Table.Td>Toggle directories-only labels</Table.Td></Table.Tr>
             <Table.Tr><Table.Td><Kbd>f</Kbd></Table.Td><Table.Td>Focus filter input</Table.Td></Table.Tr>
             <Table.Tr><Table.Td><Kbd>h</Kbd> / <Kbd>?</Kbd></Table.Td><Table.Td>Show this help</Table.Td></Table.Tr>
             <Table.Tr><Table.Td>Type to filter</Table.Td><Table.Td>Filter directory listing by name</Table.Td></Table.Tr>
@@ -1209,6 +1311,19 @@ export function App() {
       </Modal>
     </AppShell>
   );
+}
+
+function infoSummary(info: InfoResponse | null): string {
+  if (!info) return 'Duc info unavailable';
+  const { paths } = info;
+  if (paths.length === 0) return 'No indexed paths';
+  const totalSize = paths.reduce((sum, p) => sum + p.sizeBytes, 0);
+  const totalFiles = paths.reduce((sum, p) => sum + p.files, 0);
+  const sizeStr = formatBytes(totalSize);
+  const filesStr = totalFiles >= 1_000_000 ? `${(totalFiles / 1_000_000).toFixed(1)}M files` :
+    totalFiles >= 1_000 ? `${(totalFiles / 1_000).toFixed(1)}K files` :
+    `${totalFiles} files`;
+  return `${sizeStr} · ${filesStr} · ${paths.length} path${paths.length !== 1 ? 's' : ''}`;
 }
 
 function findNodeByNameInLevel(nodes: ExplorerNode[], query: string, name: string): ExplorerNode | null {

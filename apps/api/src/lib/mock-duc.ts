@@ -133,13 +133,13 @@ function executeMockCommand(args: string[], options: MockExecutorOptions, state:
   if (args[0] === 'info') {
     assertDatabaseArg(args, options.database);
 
+    const datePart = state.lastScanAt.slice(0, 10);
+    const timePart = state.lastScanAt.slice(11, 19);
+
     return {
       stdout: [
-        `Database: ${options.database}`,
-        `Indexed ${state.totalFiles} files (${formatInfoSize(state.totalSizeBytes)} total)`,
-        `Last scan: ${state.lastScanAt}`,
-        `Source root: ${options.virtualRoot}`,
-        'Mode: mock'
+        'Date       Time       Files    Dirs    Size Path',
+        `${datePart} ${timePart}  ${formatCompactCount(state.totalFiles)}  ${formatCompactCount(state.totalFiles)}  ${formatCompactSize(state.totalSizeBytes)} ${options.virtualRoot}`
       ].join('\n'),
       stderr: ''
     };
@@ -159,11 +159,10 @@ function executeMockCommand(args: string[], options: MockExecutorOptions, state:
   if (args[0] === 'json') {
     assertDatabaseArg(args, options.database);
     const requestedPath = getPathArg(args);
-    const levels = getJsonLevelsArg(args);
     const node = getDirectoryNode(state, requestedPath);
 
     return {
-      stdout: `${JSON.stringify(toDucJson(node, levels), null, 2)}\n`,
+      stdout: `${JSON.stringify(toDucJson(node), null, 2)}\n`,
       stderr: ''
     };
   }
@@ -191,19 +190,6 @@ function getPathArg(args: string[]) {
   return requestedPath;
 }
 
-function getJsonLevelsArg(args: string[]) {
-  const firstDbIndex = args.indexOf('-d');
-  const secondDbIndex = firstDbIndex >= 0 ? args.indexOf('-d', firstDbIndex + 1) : -1;
-  const value = secondDbIndex >= 0 ? args[secondDbIndex + 1] : undefined;
-  const levels = value ? Number.parseInt(value, 10) : Number.NaN;
-
-  if (!Number.isFinite(levels) || levels < 0) {
-    throw new ApiError(502, 'DUC_COMMAND_FAILED', 'Mock json command is missing a valid depth', { args });
-  }
-
-  return levels;
-}
-
 function getDirectoryNode(state: MockTreeState, requestedPath: string) {
   const node = state.nodes.get(requestedPath);
 
@@ -218,21 +204,29 @@ function getDirectoryNode(state: MockTreeState, requestedPath: string) {
   return node;
 }
 
-function toDucJson(node: MockNode, remainingLevels: number): Record<string, unknown> {
+function toDucJson(node: MockNode): Record<string, unknown> {
   return {
     name: node.name,
     size: node.sizeBytes,
     size_actual: node.sizeBytes,
-    children: node.type === 'directory' && remainingLevels > 0
-      ? (node.children ?? []).map((child) => toDucJson(child, remainingLevels - 1))
+    children: node.type === 'directory'
+      ? (node.children ?? []).map((child) => toDucJson(child))
       : undefined
   };
 }
 
-function formatInfoSize(sizeBytes: number) {
-  if (sizeBytes >= 1024 ** 4) return `${(sizeBytes / 1024 ** 4).toFixed(1)} TB`;
-  if (sizeBytes >= 1024 ** 3) return `${(sizeBytes / 1024 ** 3).toFixed(1)} GB`;
-  if (sizeBytes >= 1024 ** 2) return `${(sizeBytes / 1024 ** 2).toFixed(1)} MB`;
-  if (sizeBytes >= 1024) return `${(sizeBytes / 1024).toFixed(1)} KB`;
-  return `${sizeBytes} B`;
+function formatCompactCount(n: number): string {
+  if (n >= 1_000_000_000_000) return `${(n / 1_000_000_000_000).toFixed(1).replace(/\.0$/, '')}T`;
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1).replace(/\.0$/, '')}G`;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, '')}K`;
+  return String(n);
+}
+
+function formatCompactSize(sizeBytes: number): string {
+  if (sizeBytes >= 1024 ** 4) return `${(sizeBytes / 1024 ** 4).toFixed(1).replace(/\.0$/, '')}T`;
+  if (sizeBytes >= 1024 ** 3) return `${(sizeBytes / 1024 ** 3).toFixed(1).replace(/\.0$/, '')}G`;
+  if (sizeBytes >= 1024 ** 2) return `${(sizeBytes / 1024 ** 2).toFixed(1).replace(/\.0$/, '')}M`;
+  if (sizeBytes >= 1024) return `${(sizeBytes / 1024).toFixed(1).replace(/\.0$/, '')}K`;
+  return `${sizeBytes}B`;
 }

@@ -60,16 +60,19 @@ export function createApp(initialConfig: AppConfig) {
       ducAvailable,
       databaseReadable,
       database: currentConfig.database,
-      root: currentConfig.root
+      root: currentConfig.root,
+      deployEnv: process.env.DEPLOY_ENV || null
     };
   });
 
   app.get('/api/info', async () => {
     const result = await executor(['info', '-d', currentConfig.database], currentConfig.limits.ducTimeoutMs);
+    const { paths, ...parsed } = parseDucInfoOutput(result.stdout);
     return {
       database: currentConfig.database,
       raw: result.stdout.trim(),
-      parsed: parseDucInfoOutput(result.stdout)
+      parsed,
+      paths
     };
   });
 
@@ -130,34 +133,30 @@ export function createApp(initialConfig: AppConfig) {
     const requestedPath = resolveRequestedPath(currentConfig.root, parsed.data.path);
 
     request.log.info(
-      { path: requestedPath, levels: parsed.data.levels, maxNodes: currentConfig.limits.maxTreeNodes },
+      { path: requestedPath },
       'tree request started'
     );
 
     const result = await getTreeJson({
       config: currentConfig,
       path: requestedPath,
-      levels: parsed.data.levels,
-      maxNodes: currentConfig.limits.maxTreeNodes,
       executor
     });
 
     request.log.info(
-      { path: requestedPath, levels: parsed.data.levels, nodeCount: result.nodeCount, truncated: result.truncated, totalSizeBytes: result.totalSizeBytes, maxResponseBytes: currentConfig.limits.maxTreeResponseBytes },
+      { path: requestedPath, nodeCount: result.nodeCount, totalSizeBytes: result.totalSizeBytes },
       'tree walk completed'
     );
 
     const payload = {
       path: requestedPath,
       source: 'duc-json' as const,
-      levels: parsed.data.levels,
       nodeCount: result.nodeCount,
       truncated: result.truncated,
       totalSizeBytes: result.totalSizeBytes,
       children: result.children
     };
 
-    assertReasonablePayload(result.nodeCount, currentConfig.limits.maxTreeResponseBytes);
     return payload;
   });
 

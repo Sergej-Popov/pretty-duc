@@ -48,29 +48,57 @@ export function parseDucLsOutput(stdout: string, parentPath: string, minSize: nu
 }
 
 export function parseDucInfoOutput(stdout: string) {
-  const sizeMatch = stdout.match(/\((\d+(?:\.\d+)?)\s*([KMGTP]?B).*?total\)/i);
-  const entriesMatch = stdout.match(/Indexed\s+(\d+)\s+files?/i);
-  const timeMatch = stdout.match(/(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2})/);
+  const lines = stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const paths: Array<{ path: string; files: number; dirs: number; sizeBytes: number; lastScanAt: string }> = [];
+
+  let totalEntries = 0;
+  let totalDirs = 0;
+  let totalSizeBytes = 0;
+  let lastScanAt: string | null = null;
+
+  const dataLineRe = /^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})\s+([\d.]+)([KMGT]?)\s+([\d.]+)([KMGT]?)\s+([\d.]+)([KMGTB]?)\s+(.+)$/;
+
+  for (const line of lines) {
+    const match = line.match(dataLineRe);
+    if (!match) continue;
+
+    const scanDate = match[1]!;
+    const scanTime = match[2]!;
+    const files = parseCountish(match[3]!, match[4]!);
+    const dirs = parseCountish(match[5]!, match[6]!);
+    const sizeBytes = parseSizeBytes(match[7]!, match[8]!);
+    const path = match[9]!;
+    const timestamp = `${scanDate} ${scanTime}`;
+
+    paths.push({ path, files, dirs, sizeBytes, lastScanAt: timestamp });
+    totalEntries += files;
+    totalDirs += dirs;
+    totalSizeBytes += sizeBytes;
+
+    if (!lastScanAt || timestamp > lastScanAt) {
+      lastScanAt = timestamp;
+    }
+  }
 
   return {
-    entries: entriesMatch ? Number.parseInt(entriesMatch[1]!, 10) : null,
-    sizeBytes: sizeMatch ? parseHumanishSize(sizeMatch[1]!, sizeMatch[2]!) : null,
-    lastScanAt: timeMatch?.[1] ?? null
+    entries: totalEntries > 0 ? totalEntries : null,
+    dirs: totalDirs > 0 ? totalDirs : null,
+    sizeBytes: totalSizeBytes > 0 ? totalSizeBytes : null,
+    lastScanAt,
+    paths
   };
 }
 
-function parseHumanishSize(value: string, unit: string): number {
+function parseCountish(value: string, suffix: string): number {
   const num = Number.parseFloat(value);
-  const scale: Record<string, number> = {
-    B: 1,
-    KB: 1024,
-    MB: 1024 ** 2,
-    GB: 1024 ** 3,
-    TB: 1024 ** 4,
-    PB: 1024 ** 5
-  };
+  const multipliers: Record<string, number> = { '': 1, K: 1_000, M: 1_000_000, G: 1_000_000_000, T: 1_000_000_000_000 };
+  return Math.round(num * (multipliers[suffix] ?? 1));
+}
 
-  return Math.round(num * (scale[unit.toUpperCase()] ?? 1));
+function parseSizeBytes(value: string, suffix: string): number {
+  const num = Number.parseFloat(value);
+  const multipliers: Record<string, number> = { '': 1, B: 1, K: 1024, M: 1024 ** 2, G: 1024 ** 3, T: 1024 ** 4 };
+  return Math.round(num * (multipliers[suffix.toUpperCase()] ?? 1));
 }
 
 export function assertReasonablePayload(nodeCount: number, maxBytes: number) {

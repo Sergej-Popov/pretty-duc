@@ -1,5 +1,8 @@
 # Pretty Duc
 
+[![Docker Hub](https://img.shields.io/badge/docker-sergejpopov%2Fpretty--duc-2496ED?logo=docker&style=flat-square)](https://hub.docker.com/r/sergejpopov/pretty-duc)
+[![Docker Pulls](https://img.shields.io/docker/pulls/sergejpopov/pretty-duc?style=flat-square)](https://hub.docker.com/r/sergejpopov/pretty-duc)
+
 Web UI for exploring disk usage. Point it at a [Duc](https://github.com/zevv/duc) database and browse with treemaps, sunbursts, flame graphs, filterable tables, and keyboard-driven navigation.
 
 This project was built entirely with AI tools: 
@@ -18,11 +21,37 @@ This project was built entirely with AI tools:
 
 ## Quick start
 
-```bash
-git clone <repo-url> && cd pretty-duc
-cp docker/compose.example.yml docker-compose.yml
-# edit volumes in docker-compose.yml to point at your Duc database and scan root
-docker compose up --build
+```yml
+# compose.yml
+services:
+  duc:
+    image: mkoestler/duc-service
+    restart: unless-stopped
+    environment:
+      SCHEDULE: "0 3 * * *"
+    volumes:
+      - /:/scan/root:ro
+      - duc_database:/database
+
+  pretty-duc:
+    build:
+      context: ..
+    restart: unless-stopped
+    ports:
+      - "8081:3000"
+    environment:
+      DUC_DATABASE: /database/duc.db
+      DUC_ROOT: /scan/root
+      PORT: 3000
+    volumes:
+      - duc_database:/database:ro
+
+volumes:
+  duc_database:
+```
+
+```sh
+sudo docker compose up -d
 ```
 
 Open `http://localhost:3000`.

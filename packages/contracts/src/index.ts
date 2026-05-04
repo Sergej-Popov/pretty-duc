@@ -35,7 +35,8 @@ export const healthResponseSchema = z.object({
   ducAvailable: z.boolean(),
   databaseReadable: z.boolean(),
   database: z.string(),
-  root: z.string()
+  root: z.string(),
+  deployEnv: z.string().nullable().optional()
 });
 export type HealthResponse = z.infer<typeof healthResponseSchema>;
 
@@ -44,9 +45,17 @@ export const infoResponseSchema = z.object({
   raw: z.string(),
   parsed: z.object({
     entries: z.number().nullable(),
+    dirs: z.number().nullable(),
     sizeBytes: z.number().nullable(),
     lastScanAt: z.string().nullable()
-  })
+  }),
+  paths: z.array(z.object({
+    path: z.string(),
+    files: z.number().nonnegative(),
+    dirs: z.number().nonnegative(),
+    sizeBytes: z.number().nonnegative(),
+    lastScanAt: z.string()
+  }))
 });
 export type InfoResponse = z.infer<typeof infoResponseSchema>;
 
@@ -72,15 +81,13 @@ export const childrenResponseSchema = z.object({
 export type ChildrenResponse = z.infer<typeof childrenResponseSchema>;
 
 export const treeQuerySchema = z.object({
-  path: z.string().min(1),
-  levels: z.coerce.number().int().min(1).max(2).default(2)
+  path: z.string().min(1)
 });
 export type TreeQuery = z.infer<typeof treeQuerySchema>;
 
 export const treeResponseSchema = z.object({
   path: z.string(),
-  source: z.literal('duc-ls-recursive'),
-  levels: z.number().int().min(1),
+  source: z.literal('duc-json'),
   nodeCount: z.number().int().nonnegative(),
   truncated: z.boolean(),
   totalSizeBytes: z.number().nonnegative(),

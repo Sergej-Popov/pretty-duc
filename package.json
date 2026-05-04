@@ -21,6 +21,7 @@
     "test:unit": "bun run build:packages && bun test packages apps/api",
     "test:web": "bun run --cwd apps/web test",
     "test:integration": "bun scripts/run-integration-tests.ts",
+    "docker:push:local": "bun scripts/docker-push-local.ts",
     "test:integration:runner": "bun test tests/integration",
     "typecheck": "bun run build:packages && bun run --cwd apps/api typecheck && bun run --cwd apps/web typecheck"
   },

@@ -17,6 +17,8 @@ COPY --from=build /app/apps ./apps
 COPY --from=build /app/packages ./packages
 
 ENV PORT=3000
+ARG DEPLOY_ENV
+ENV DEPLOY_ENV=${DEPLOY_ENV}
 EXPOSE 3000
 
 CMD ["bun", "apps/api/dist/index.js"]

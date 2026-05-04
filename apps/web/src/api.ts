@@ -34,8 +34,8 @@ export function fetchChildren(path: string, levels: number, sort: SortMode, minS
   return getJson<ChildrenResponse>(`/api/children?${params.toString()}`);
 }
 
-export function fetchTree(path: string, levels = 2) {
-  const params = new URLSearchParams({ path, levels: String(levels) });
+export function fetchTree(path: string) {
+  const params = new URLSearchParams({ path });
   return getJson<TreeResponse>(`/api/tree?${params.toString()}`);
 }
 

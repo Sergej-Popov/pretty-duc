@@ -149,15 +149,13 @@ export async function getChildrenTree(options: {
 export async function getTreeJson(options: {
   config: AppConfig;
   path: string;
-  levels: number;
-  maxNodes: number;
   executor: DucExecutor;
 }): Promise<{ children: ExplorerNode[]; truncated: boolean; totalSizeBytes: number; nodeCount: number }> {
-  const args = ['json', '-d', options.config.database, '-d', String(options.levels), '--', options.path];
+  const args = ['json', '-d', options.config.database, '--', options.path];
   const result = await options.executor(args, options.config.limits.ducTimeoutMs);
   
   if (!result.stdout.trim()) {
-    console.warn(`[tree] empty output for path=${options.path} levels=${options.levels}`);
+    console.warn(`[tree] empty output for path=${options.path}`);
     return { children: [], truncated: false, totalSizeBytes: 0, nodeCount: 0 };
   }
 
@@ -165,20 +163,19 @@ export async function getTreeJson(options: {
   try {
     rawJson = JSON.parse(result.stdout);
   } catch (e) {
-    console.error(`[tree] failed to parse JSON for path=${options.path} levels=${options.levels}: stdout length=${result.stdout.length}`);
+    console.error(`[tree] failed to parse JSON for path=${options.path}: stdout length=${result.stdout.length}`);
     throw new ApiError(502, 'DUC_INVALID_JSON', 'Failed to parse JSON from Duc output');
   }
   
   let nodeCount = 0;
-  let truncated = false;
   
   function walkJson(node: any, currentPath: string, remainingLevels: number): ExplorerNode {
     nodeCount++;
-    const isDir = typeof node.size === 'number' && node.children !== undefined;
+    const isDir = (typeof node.size_actual === 'number' || typeof node.size === 'number') && node.children !== undefined;
     const type = isDir ? 'directory' : 'file';
     
     // duc json provides:
-    // { "name": "...", "size": 123, "size_actual": 123, "children": [...] }
+    // { "name": "...", "count": 5, "size_apparent": 123, "size_actual": 123, "children": [...] }
     
     const sizeBytes = node.size || node.size_actual || 0;
     
@@ -200,11 +197,6 @@ export async function getTreeJson(options: {
       }
       
       for (const child of node.children) {
-        if (nodeCount >= options.maxNodes) {
-          truncated = true;
-          break;
-        }
-        
         const childPath = currentPath === '/' ? `/${child.name}` : `${currentPath}/${child.name}`;
         const parsedChild = walkJson(child, childPath, remainingLevels - 1);
         parsedChild.percentOfParent = parentTotal > 0 ? Number(((parsedChild.sizeBytes / parentTotal) * 100).toFixed(2)) : 0;
@@ -217,12 +209,12 @@ export async function getTreeJson(options: {
     return resultNode;
   }
   
-  const rootNode = walkJson(rawJson, options.path, options.levels);
+  const rootNode = walkJson(rawJson, options.path, Number.MAX_SAFE_INTEGER);
   const children = rootNode.children || [];
   
   return {
     children,
-    truncated,
+    truncated: false,
     totalSizeBytes: rootNode.sizeBytes,
     nodeCount
   };

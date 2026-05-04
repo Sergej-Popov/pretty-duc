@@ -37,3 +37,17 @@ Pretty Duc is a modern web UI and API for `duc`. It runs as a separate Docker se
 
 ## Deployment
 Docker Compose is the primary deployment method. The Vite frontend is built statically, and the Fastify backend serves both the API and the static UI assets from a single container in production.
+
+## Auto
+
+- **Tree/radial tree charts:** `toChartTree` returns children as a flat array. ECharts tree views need a wrapping root node (current directory). Wrap in `chartNodes` computation with `{ name, value, path, children: nodes }` for `tree` and `tree-radial` views.
+- **Mantine CSS variables:** `--mantine-color-dimmed-bg` and `--mantine-color-dimmed-border` do NOT exist. Use `--mantine-color-default-hover` for hover bg, `--mantine-color-default-border` for borders, `--mantine-color-dark-light` for selection highlights.
+- **Payload budget:** `assertReasonablePayload` uses `nodeCount * 200` heuristic. `nodeCount` counts all nodes including truncated ones — the actual response tree is bounded correctly but the estimate may fail. Default `maxChildrenResponseBytes` is 10 MB (`10485760`).
+- **Docker Hub overview:** Pushed via `chko/docker-pushrm:v1` in GHA, reads from `docker/dockerhub-readme.md` (separate from repo README).
+- **Duc scanner in Docker:** Use `mkoestler/duc-service` image with `SCHEDULE` env var, not a custom `duc index` entrypoint.
+- **Keyboard events on Mantine TextInput:** Use native `addEventListener('keydown', ..., { capture: true })` binding to the input ref. React's synthetic `onKeyDown` on Mantine components may not fire reliably. Use `useRef` for all values accessed inside the listener to avoid stale closures and effect re-runs.
+- **Mantine Switch onChange + React setState callback:** `event.currentTarget` is nullified by React after the handler returns. Capture `event.currentTarget.checked` synchronously before passing to a `setState` updater function.
+- **Global keyboard shortcuts:** Use a single `window.addEventListener('keydown', handler)` in a `useEffect` (empty deps). Guard against input/textarea/select elements and open modals. Store all mutable values in a `navStateRef` (updated every render) to avoid stale closures. Use `const state = navStateRef.current` inside the handler.
+- **Config persistence:** Editable runtime config is stored as `pretty-duc-config.json` (path from `CONFIG_FILE` env var). On startup, `buildConfig()` merges env vars with saved file. API routes: `GET /api/config`, `PUT /api/config`, `POST /api/config/reset`. Limits are mutable at runtime via `currentConfig.limits`.
+- **Duc index backgrounding:** Use `Bun.spawn` directly (not the executor) for `duc index` — fire-and-forget with `onExit` logging. Do not await; index can take minutes.
+- **Tooltip format (unified):** All chart tooltips show `name: formattedSize (percent%)`. Treemap/sunburst compute percent from `chartTotal` (sum of root node values). Flame graph gets percent from data. Circle packing gets total from per-item `total` field.
