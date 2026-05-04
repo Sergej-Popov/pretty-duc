@@ -9,7 +9,7 @@ export const appDefaults = {
   ducTimeoutMs: 5000,
   recursiveBudgetMs: 15000,
   defaultLevels: 1,
-  maxChildrenLevels: 4,
+  maxChildrenLevels: 6,
   maxTreeLevels: 2,
   maxChildrenPerDirectory: 500,
   maxRecursiveNodes: 2000,

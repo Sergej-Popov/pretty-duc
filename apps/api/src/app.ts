@@ -4,7 +4,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import type { AppConfig } from '@pretty-duc/config';
-import { childrenQuerySchema, treeQuerySchema, type SortMode } from '@pretty-duc/contracts';
+import { treeQuerySchema, type SortMode } from '@pretty-duc/contracts';
 import { parseDucInfoOutput, assertReasonablePayload } from './lib/parser';
 import { createExecutor, getChildrenTree, getTreeJson } from './lib/duc';
 import { ApiError, toErrorResponse } from './lib/errors';
@@ -59,20 +59,17 @@ export function createApp(config: AppConfig) {
   });
 
   app.get('/api/children', async (request) => {
-    const parsed = childrenQuerySchema.safeParse(request.query);
+    const parsed = parseChildrenQuery(request.query);
 
-    if (!parsed.success) {
-      throw new ApiError(422, 'INVALID_QUERY', 'Invalid children query', { issues: parsed.error.issues });
-    }
-
-    const requestedPath = resolveRequestedPath(config.root, parsed.data.path);
-    const minSize = parsed.data.minSize ?? config.defaultMinSize;
+    const requestedPath = resolveRequestedPath(config.root, parsed.path);
+    const minSize = parsed.minSize ?? config.defaultMinSize;
+    const levels = Math.min(parsed.levels, config.limits.maxChildrenLevels);
     const result = await getChildrenTree({
       config,
       path: requestedPath,
-      levels: parsed.data.levels,
+      levels,
       minSize,
-      sort: parsed.data.sort as SortMode,
+      sort: parsed.sort,
       maxNodes: config.limits.maxRecursiveNodes,
       maxChildrenPerDirectory: config.limits.maxChildrenPerDirectory,
       maxResponseBytes: config.limits.maxChildrenResponseBytes,
@@ -81,8 +78,8 @@ export function createApp(config: AppConfig) {
 
     const payload = {
       path: requestedPath,
-      levels: parsed.data.levels,
-      sort: parsed.data.sort,
+      levels,
+      sort: parsed.sort,
       appliedMinSize: minSize,
       truncated: result.truncated,
       totalSizeBytes: result.totalSizeBytes,
@@ -154,4 +151,34 @@ export function createApp(config: AppConfig) {
   });
 
   return app;
+}
+
+function parseChildrenQuery(query: unknown): { path: string; levels: number; sort: SortMode; minSize?: number | null } {
+  if (!query || typeof query !== 'object') {
+    throw new ApiError(422, 'INVALID_QUERY', 'Invalid children query');
+  }
+
+  const source = query as Record<string, unknown>;
+  const path = typeof source.path === 'string' ? source.path : '';
+  const levels = typeof source.levels === 'string' || typeof source.levels === 'number'
+    ? Number.parseInt(String(source.levels), 10)
+    : 1;
+  const sort = source.sort === 'nameAsc' ? 'nameAsc' : 'sizeDesc';
+  const minSize = source.minSize === undefined || source.minSize === null || source.minSize === ''
+    ? undefined
+    : Number.parseInt(String(source.minSize), 10);
+
+  if (!path) {
+    throw new ApiError(422, 'INVALID_QUERY', 'Invalid children query', { issues: [{ path: ['path'], message: 'Path is required' }] });
+  }
+
+  if (!Number.isInteger(levels) || levels < 1) {
+    throw new ApiError(422, 'INVALID_QUERY', 'Invalid children query', { issues: [{ path: ['levels'], message: 'Levels must be a positive integer' }] });
+  }
+
+  if (minSize !== undefined && (!Number.isInteger(minSize) || minSize < 0)) {
+    throw new ApiError(422, 'INVALID_QUERY', 'Invalid children query', { issues: [{ path: ['minSize'], message: 'Minimum size must be a non-negative integer' }] });
+  }
+
+  return { path, levels, sort, minSize };
 }

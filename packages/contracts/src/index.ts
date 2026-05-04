@@ -52,7 +52,7 @@ export type InfoResponse = z.infer<typeof infoResponseSchema>;
 
 export const childrenQuerySchema = z.object({
   path: z.string().min(1),
-  levels: z.coerce.number().int().min(1).max(4).default(1),
+  levels: z.coerce.number().int().min(1).max(64).default(1),
   sort: sortModeSchema.default('sizeDesc'),
   minSize: z.coerce.number().int().nonnegative().nullable().optional()
 });

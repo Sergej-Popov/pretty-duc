@@ -3,6 +3,7 @@ import { ActionIcon, Box, useMantineColorScheme, useMantineTheme } from '@mantin
 import ReactECharts from 'echarts-for-react';
 
 export type SunburstHighlightMode = 'ancestor' | 'descendant';
+export type ChartViewMode = 'treemap' | 'sunburst' | 'flame-graph' | 'circle-packing';
 
 export function ExplorerChart({
   nodes,
@@ -15,7 +16,7 @@ export function ExplorerChart({
   useDecal
 }: {
   nodes: Array<Record<string, unknown>>;
-  view: 'treemap' | 'sunburst';
+  view: ChartViewMode;
   sunburstHighlightMode: SunburstHighlightMode;
   onSelect: (path: string) => void;
   onContextMenu: (path: string, position: { x: number; y: number }) => void;
@@ -44,6 +45,7 @@ export function ExplorerChart({
     theme.colors.orange[5]
   ];
   const hiddenColor = colorScheme === 'dark' ? theme.colors.gray[7] : theme.colors.gray[5];
+  const circlePackingRootColor = colorScheme === 'dark' ? theme.colors.blue[9] : theme.colors.blue[0];
   const tintColor = theme.white;
   const decal = useDecal
     ? {
@@ -58,10 +60,15 @@ export function ExplorerChart({
     () => applyChartNodeStyles(nodes, { hiddenColor, decal, palette, tintColor }, view),
     [decal, hiddenColor, nodes, palette, tintColor, view]
   );
+  const flameData = useMemo(() => toFlameGraphData(styledNodes, palette, decal), [decal, palette, styledNodes]);
+  const circleData = useMemo(
+    () => toCirclePackingData(styledNodes, palette, circlePackingRootColor, decal),
+    [circlePackingRootColor, decal, palette, styledNodes]
+  );
 
-  const series =
-    view === 'treemap'
-      ? {
+  const series = (() => {
+    if (view === 'treemap') {
+      return {
           type: 'treemap',
           id: 'storage-map',
           roam: false,
@@ -95,8 +102,11 @@ export function ExplorerChart({
             }
           ],
           data: styledNodes
-        }
-      : {
+        };
+    }
+
+    if (view === 'sunburst') {
+      return {
           type: 'sunburst',
           id: 'storage-map',
           radius: ['18%', '95%'],
@@ -112,23 +122,67 @@ export function ExplorerChart({
           ...(decal ? { itemStyle: { decal } } : null),
           data: styledNodes
         };
+    }
+
+    if (view === 'flame-graph') {
+      return {
+        type: 'custom',
+        id: 'storage-map',
+        renderItem: renderFlameGraphItem,
+        encode: { x: [1, 2], y: 0 },
+        data: flameData.items
+      };
+    }
+
+    return {
+      type: 'custom',
+      id: 'storage-map',
+      coordinateSystem: 'none',
+      renderItem: renderCirclePackingItem,
+      progressive: 0,
+      data: circleData
+    };
+  })();
+
+  const option = {
+    backgroundColor: 'transparent',
+    textStyle: { color: textColor },
+    tooltip: {
+      trigger: 'item',
+      backgroundColor: colorScheme === 'dark' ? theme.colors.dark[6] : theme.white,
+      borderColor,
+      textStyle: { color: textColor },
+      extraCssText: 'box-shadow:none;',
+      formatter: (params: { marker?: string; name?: string; value?: unknown; data?: { valueBytes?: unknown } }) => {
+        if (view === 'flame-graph' && Array.isArray(params.value)) {
+          const bytes = Number(params.value[2]) - Number(params.value[1]);
+          const percent = Number(params.value[4]);
+          return `${params.marker ?? ''} ${params.value[3]}: ${formatChartBytes(bytes)} (${percent.toFixed(2)}%)`;
+        }
+
+        if (view === 'circle-packing') {
+          return `${params.marker ?? ''} ${params.name ?? ''}: ${formatChartBytes(Number(params.data?.valueBytes ?? 0))}`;
+        }
+
+        return `${params.marker ?? ''} ${params.name ?? ''}`;
+      }
+    },
+    ...(view === 'flame-graph'
+      ? {
+          grid: { left: 0, right: 0, top: 8, bottom: 8, containLabel: false },
+          xAxis: { show: false, min: 0, max: flameData.total },
+          yAxis: { show: false, min: -0.5, max: flameData.maxLevel + 0.5 }
+        }
+      : null),
+    series: [series]
+  };
 
   return (
     <Box pos="relative">
       <ReactECharts
         style={{ height: 420, width: '100%' }}
-        option={{
-          backgroundColor: 'transparent',
-          textStyle: { color: textColor },
-          tooltip: {
-            trigger: 'item',
-            backgroundColor: colorScheme === 'dark' ? theme.colors.dark[6] : theme.white,
-            borderColor,
-            textStyle: { color: textColor },
-            extraCssText: 'box-shadow:none;'
-          },
-          series: [series]
-        }}
+        option={option}
+        notMerge
         onEvents={{
           click: (event: { data?: { path?: unknown } }) => {
             const nextPath = typeof event?.data?.path === 'string' ? event.data.path : null;
@@ -171,7 +225,7 @@ export function ExplorerChart({
 function applyChartNodeStyles(
   nodes: Array<Record<string, unknown>>,
   options: { hiddenColor: string; decal?: Record<string, unknown>; palette: string[]; tintColor: string },
-  view: 'treemap' | 'sunburst',
+  view: ChartViewMode,
   depth = 0,
   branchColor?: string
 ): Array<Record<string, unknown>> {
@@ -205,6 +259,266 @@ function applyChartNodeStyles(
       children
     };
   });
+}
+
+function toFlameGraphData(nodes: Array<Record<string, unknown>>, palette: string[], decal?: Record<string, unknown>) {
+  const total = nodes.reduce((sum, node) => sum + getNodeValue(node), 0);
+  const items: Array<Record<string, unknown>> = [];
+  let maxLevel = 0;
+  let start = 0;
+
+  nodes.forEach((node, index) => {
+    const color = palette[index % palette.length] ?? palette[0] ?? '#228be6';
+    appendFlameNode(node, 0, start, total, color, items, (level) => {
+      maxLevel = Math.max(maxLevel, level);
+    }, decal);
+    start += getNodeValue(node);
+  });
+
+  return { items, maxLevel, total: Math.max(total, 1) };
+}
+
+function appendFlameNode(
+  node: Record<string, unknown>,
+  level: number,
+  start: number,
+  total: number,
+  color: string,
+  items: Array<Record<string, unknown>>,
+  trackLevel: (level: number) => void,
+  decal?: Record<string, unknown>,
+  displayValue?: number
+) {
+  const value = displayValue ?? getNodeValue(node);
+  const name = getNodeName(node);
+  const children = getNodeChildren(node);
+  const nodeColor = getNodeStyleColor(node) ?? color;
+
+  trackLevel(level);
+  items.push({
+    name,
+    path: getNodePath(node),
+    value: [level, start, start + value, name, total > 0 ? (value / total) * 100 : 0],
+    itemStyle: { color: nodeColor, ...(decal ? { decal } : null) }
+  });
+
+  let childStart = 0;
+  const childTotal = children.reduce((sum, child) => sum + getNodeValue(child), 0);
+  const childScale = childTotal > 0 ? (value * 0.9) / childTotal : 0;
+  const childOffset = value * 0.05;
+  children.forEach((child, index) => {
+    const childWidth = getNodeValue(child) * childScale;
+    appendFlameNode(child, level + 1, start + childOffset + childStart, total, getTreemapNodeColor(nodeColor, '#ffffff', level + 1, index), items, trackLevel, decal, childWidth);
+    childStart += childWidth;
+  });
+}
+
+function renderFlameGraphItem(_params: unknown, api: any) {
+  const level = api.value(0);
+  const start = api.coord([api.value(1), level]);
+  const end = api.coord([api.value(2), level]);
+  const height = (api.size?.([0, 1]) ?? [0, 22])[1];
+  const width = Math.max(0, end[0] - start[0]);
+  const style = api.style();
+  style.fill = api.visual('color');
+
+  return {
+    type: 'rect',
+    shape: {
+      x: start[0],
+      y: start[1] - height / 2,
+      width,
+      height: Math.max(1, height - 2),
+      r: 2
+    },
+    style,
+    emphasis: { style: { stroke: '#000', lineWidth: 1 } },
+    textConfig: { position: 'insideLeft' },
+    textContent: {
+      style: {
+        text: api.value(3),
+        fill: '#111',
+        width: Math.max(0, width - 6),
+        overflow: 'truncate',
+        ellipsis: '..',
+        fontSize: 11
+      }
+    }
+  };
+}
+
+function toCirclePackingData(nodes: Array<Record<string, unknown>>, palette: string[], rootColor: string, decal?: Record<string, unknown>) {
+  const items: Array<Record<string, unknown>> = [];
+  const total = nodes.reduce((sum, node) => sum + getNodeValue(node), 0);
+  items.push({
+    name: '',
+    path: '',
+    value: [50, 50, 49, 0, ''],
+    valueBytes: total,
+    itemStyle: {
+      color: rootColor,
+      borderColor: palette[0] ?? '#228be6',
+      borderWidth: 2,
+      ...(decal ? { decal } : null)
+    },
+    silent: true
+  });
+
+  const roots = placeChildCircles(nodes, 50, 50, 47);
+
+  roots.forEach((placed, index) => {
+    const color = palette[index % palette.length] ?? palette[0] ?? '#228be6';
+    appendCircleNode(placed.node, placed.x, placed.y, placed.radius, 1, color, items, decal);
+  });
+
+  return items;
+}
+
+function appendCircleNode(
+  node: Record<string, unknown>,
+  x: number,
+  y: number,
+  radius: number,
+  depth: number,
+  color: string,
+  items: Array<Record<string, unknown>>,
+  decal?: Record<string, unknown>
+) {
+  const children = getNodeChildren(node);
+  const nodeColor = getNodeStyleColor(node) ?? color;
+
+  items.push({
+    name: getNodeName(node),
+    path: getNodePath(node),
+    value: [x, y, radius, depth, getNodeName(node)],
+    valueBytes: getNodeValue(node),
+    itemStyle: { color: nodeColor, ...(decal ? { decal } : null) }
+  });
+
+  if (!children.length || radius < 8) {
+    return;
+  }
+
+  const placedChildren = placeChildCircles(children, x, y, radius - 2);
+
+  placedChildren.forEach((child, index) => {
+    appendCircleNode(
+      child.node,
+      child.x,
+      child.y,
+      child.radius,
+      depth + 1,
+      getTreemapNodeColor(nodeColor, '#ffffff', depth + 1, index),
+      items,
+      decal
+    );
+  });
+}
+
+function placeChildCircles(nodes: Array<Record<string, unknown>>, centerX: number, centerY: number, parentRadius: number) {
+  if (!nodes.length || parentRadius <= 0) {
+    return [];
+  }
+
+  const total = nodes.reduce((sum, node) => sum + getNodeValue(node), 0);
+  const sorted = [...nodes].sort((left, right) => getNodeValue(right) - getNodeValue(left));
+  const maxChildRadius = parentRadius * (sorted.length === 1 ? 0.92 : 0.45);
+  const minChildRadius = Math.max(1.6, parentRadius * 0.08);
+
+  return sorted.map((node, index) => {
+    const share = total > 0 ? getNodeValue(node) / total : 1 / sorted.length;
+    const radius = Math.min(maxChildRadius, Math.max(minChildRadius, parentRadius * 0.9 * Math.sqrt(share)));
+
+    if (sorted.length === 1) {
+      return { node, x: centerX, y: centerY, radius };
+    }
+
+    const angle = -Math.PI / 2 + (Math.PI * 2 * index) / sorted.length;
+    const ringRadius = Math.max(0, parentRadius - radius - 1.5);
+
+    return {
+      node,
+      x: centerX + Math.cos(angle) * ringRadius,
+      y: centerY + Math.sin(angle) * ringRadius,
+      radius
+    };
+  });
+}
+
+function renderCirclePackingItem(_params: unknown, api: any) {
+  const width = api.getWidth();
+  const height = api.getHeight();
+  const size = Math.min(width, height);
+  const left = (width - size) / 2;
+  const top = (height - size) / 2;
+  const x = left + (api.value(0) / 100) * size;
+  const y = top + (api.value(1) / 100) * size;
+  const radius = (api.value(2) / 100) * size;
+  const depth = Number(api.value(3));
+  const label = String(api.value(4) ?? '');
+  const style = api.style();
+  style.fill = api.visual('color');
+  style.opacity = depth === 0 ? 1 : depth === 1 ? 0.82 : 0.9;
+
+  return {
+    type: 'circle',
+    shape: { cx: x, cy: y, r: radius },
+    z2: depth * 2,
+    style,
+    emphasis: { style: { shadowBlur: 16, shadowColor: 'rgba(0,0,0,0.25)', lineWidth: 2, stroke: '#111' } },
+    textConfig: { position: 'inside' },
+    textContent: {
+      style: {
+        text: radius > 14 ? label : '',
+        width: radius * 1.4,
+        overflow: 'truncate',
+        fontSize: Math.max(9, Math.min(14, radius / 3)),
+        fill: '#111'
+      }
+    }
+  };
+}
+
+function getNodeChildren(node: Record<string, unknown>) {
+  return Array.isArray(node.children) ? node.children as Array<Record<string, unknown>> : [];
+}
+
+function getNodeName(node: Record<string, unknown>) {
+  return typeof node.name === 'string' ? node.name : '';
+}
+
+function getNodePath(node: Record<string, unknown>) {
+  return typeof node.path === 'string' ? node.path : '';
+}
+
+function getNodeValue(node: Record<string, unknown>) {
+  const value = typeof node.value === 'number' ? node.value : 0;
+  return Math.max(0, value);
+}
+
+function getNodeStyleColor(node: Record<string, unknown>) {
+  const itemStyle = node.itemStyle;
+  if (!itemStyle || typeof itemStyle !== 'object' || Array.isArray(itemStyle)) {
+    return null;
+  }
+
+  const color = (itemStyle as Record<string, unknown>).color;
+  return typeof color === 'string' ? color : null;
+}
+
+function formatChartBytes(size: number) {
+  if (size < 1024) return `${Math.round(size)} B`;
+
+  const units = ['KB', 'MB', 'GB', 'TB', 'PB'];
+  let value = size;
+  let unitIndex = -1;
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${value.toFixed(value >= 10 ? 1 : 2)} ${units[unitIndex] ?? 'B'}`;
 }
 
 function getTreemapNodeColor(baseColor: string, tintColor: string, depth: number, siblingIndex: number) {

@@ -18,7 +18,8 @@ import {
   Paper,
   Progress,
   ScrollArea,
-  SegmentedControl,
+  Select,
+  Slider,
   Stack,
   Switch,
   Table,
@@ -34,9 +35,9 @@ import { notifications } from '@mantine/notifications';
 import type { ChildrenResponse, ExplorerNode, SortMode } from '@pretty-duc/contracts';
 import { buildBreadcrumbs, filterNodes, formatBytes, toChartTree } from '@pretty-duc/ui-model';
 import { fetchChildren, fetchHealth, fetchInfo } from './api';
-import { ExplorerChart, type SunburstHighlightMode } from './ExplorerChart';
+import { ExplorerChart, type ChartViewMode, type SunburstHighlightMode } from './ExplorerChart';
 
-type ViewMode = 'treemap' | 'sunburst';
+type ViewMode = ChartViewMode;
 type TableSortMode = 'sizeDesc' | 'sizeAsc' | 'nameAsc' | 'nameDesc' | 'typeAsc' | 'typeDesc';
 
 export function App() {
@@ -44,6 +45,7 @@ export function App() {
   const [path, setPath] = useState(getInitialPath);
   const [sort, setSort] = useState<TableSortMode>(getInitialSort);
   const [view, setView] = useState<ViewMode>(getInitialView);
+  const [depth, setDepth] = useState(getInitialDepth);
   const [query, setQuery] = useState(getInitialQuery);
   const [data, setData] = useState<ChildrenResponse | null>(null);
   const [health, setHealth] = useState<string>('Checking service');
@@ -66,17 +68,18 @@ export function App() {
     params.set('path', path);
     params.set('view', view);
     params.set('sort', sort);
+    params.set('depth', String(depth));
     if (query) {
       params.set('query', query);
     } else {
       params.delete('query');
     }
     window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
-  }, [path, view, sort, query]);
+  }, [depth, path, view, sort, query]);
 
   useEffect(() => {
     setActiveIndex(0);
-  }, [query, sort, path]);
+  }, [depth, query, sort, path]);
 
   useEffect(() => {
     setSunburstRootPath(null);
@@ -103,7 +106,7 @@ export function App() {
       setError(null);
 
       try {
-        const children = await fetchChildren(path, 2, toApiSort(sort));
+        const children = await fetchChildren(path, depth, toApiSort(sort));
 
         if (ignore) return;
         setData(children);
@@ -120,7 +123,7 @@ export function App() {
     return () => {
       ignore = true;
     };
-  }, [path, sort]);
+  }, [depth, path, sort]);
 
   const visibleNodes = useMemo(() => {
     const filtered = filterNodes(data?.children ?? [], query);
@@ -300,13 +303,17 @@ export function App() {
             <Paper withBorder p="md" radius="sm">
               <Stack gap="sm">
                 <Text size="xs" tt="uppercase" fw={700} c="dimmed">Controls</Text>
-                <SegmentedControl
+                <Select
                   radius="sm"
+                  label="Chart type"
                   value={view}
-                  onChange={(value) => setView(value as ViewMode)}
+                  onChange={(value) => setView(toViewMode(value))}
+                  allowDeselect={false}
                   data={[
                     { label: 'Treemap', value: 'treemap' },
-                    { label: 'Sunburst', value: 'sunburst' }
+                    { label: 'Sunburst', value: 'sunburst' },
+                    { label: 'Flame graph', value: 'flame-graph' },
+                    { label: 'Circle packing', value: 'circle-packing' }
                   ]}
                 />
                 <TextInput
@@ -315,6 +322,27 @@ export function App() {
                   onChange={(event) => setQuery(event.currentTarget.value)}
                   placeholder="Filter current directory"
                 />
+                <Box mb="md">
+                  <Group justify="space-between" mb={6}>
+                    <Text size="sm" fw={500}>Graph depth</Text>
+                    <Badge variant="light" color="gray">{depth}</Badge>
+                  </Group>
+                  <Slider
+                    min={1}
+                    max={6}
+                    step={1}
+                    value={depth}
+                    onChange={setDepth}
+                    marks={[
+                      { value: 1, label: '1' },
+                      { value: 2, label: '2' },
+                      { value: 3, label: '3' },
+                      { value: 4, label: '4' },
+                      { value: 5, label: '5' },
+                      { value: 6, label: '6' }
+                    ]}
+                  />
+                </Box>
                 <CopyButton value={path} timeout={1500}>
                   {({ copied, copy }) => (
                     <Button
@@ -403,7 +431,7 @@ export function App() {
                   <Stack gap="md" h="100%">
                     <Group justify="space-between">
                       <Box>
-                        <Text fw={700}>{view === 'sunburst' ? 'Sunburst' : 'Treemap'}</Text>
+                        <Text fw={700}>{getViewLabel(view)}</Text>
                       </Box>
                     </Group>
                     <Box style={{ minHeight: 460 }}>
@@ -638,7 +666,28 @@ function getInitialView(): ViewMode {
   }
 
   const value = new URLSearchParams(window.location.search).get('view');
-  return value === 'sunburst' ? 'sunburst' : 'treemap';
+  return toViewMode(value);
+}
+
+function toViewMode(value: string | null): ViewMode {
+  if (value === 'sunburst' || value === 'flame-graph' || value === 'circle-packing') {
+    return value;
+  }
+
+  return 'treemap';
+}
+
+function getViewLabel(view: ViewMode) {
+  switch (view) {
+    case 'sunburst':
+      return 'Sunburst';
+    case 'flame-graph':
+      return 'Flame graph';
+    case 'circle-packing':
+      return 'Circle packing';
+    case 'treemap':
+      return 'Treemap';
+  }
 }
 
 function getInitialSort(): TableSortMode {
@@ -646,6 +695,17 @@ function getInitialSort(): TableSortMode {
 
   const value = new URLSearchParams(window.location.search).get('sort');
   return isTableSortMode(value) ? value : 'sizeDesc';
+}
+
+function getInitialDepth() {
+  if (typeof window === 'undefined') return 4;
+
+  return toDepth(new URLSearchParams(window.location.search).get('depth'));
+}
+
+function toDepth(value: string | null) {
+  const parsed = value ? Number.parseInt(value, 10) : 4;
+  return parsed >= 1 && parsed <= 6 ? parsed : 4;
 }
 
 function getInitialQuery(): string {

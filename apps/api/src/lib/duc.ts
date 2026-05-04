@@ -82,7 +82,13 @@ export async function getChildrenTree(options: {
 
     const args = ['ls', '-b', '-d', options.config.database, '-F', '--', currentPath];
 
-    const result = await options.executor(args, options.config.limits.ducTimeoutMs);
+    const result = await withLimit(localSemaphore, () => {
+      if (Date.now() - startedAt > options.config.limits.recursiveBudgetMs) {
+        throw new ApiError(504, 'DUC_TIMEOUT', 'Recursive request exceeded configured time budget');
+      }
+
+      return options.executor(args, options.config.limits.ducTimeoutMs);
+    });
     let children = [];
     try {
       children = parseDucLsOutput(result.stdout, currentPath, options.minSize);
@@ -111,7 +117,7 @@ export async function getChildrenTree(options: {
       }
 
       if (remainingLevels > 1 && child.type === 'directory') {
-        child.children = await withLimit(localSemaphore, () => walk(child.path, remainingLevels - 1));
+        child.children = await walk(child.path, remainingLevels - 1);
       }
       
       return child;
