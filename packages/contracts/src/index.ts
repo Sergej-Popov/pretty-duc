@@ -54,7 +54,8 @@ export const childrenQuerySchema = z.object({
   path: z.string().min(1),
   levels: z.coerce.number().int().min(1).max(64).default(1),
   sort: sortModeSchema.default('sizeDesc'),
-  minSize: z.coerce.number().int().nonnegative().nullable().optional()
+  minSize: z.coerce.number().int().nonnegative().nullable().optional(),
+  apparent: z.coerce.boolean().default(true)
 });
 export type ChildrenQuery = z.infer<typeof childrenQuerySchema>;
 
@@ -63,6 +64,7 @@ export const childrenResponseSchema = z.object({
   levels: z.number().int().min(1),
   sort: sortModeSchema,
   appliedMinSize: z.number().nullable(),
+  apparent: z.boolean(),
   truncated: z.boolean(),
   totalSizeBytes: z.number().nonnegative(),
   children: z.array(explorerNodeSchema)

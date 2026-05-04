@@ -100,7 +100,10 @@ export function SettingsModal({ opened, onClose }: { opened: boolean; onClose: (
         <Stack gap="md">
           <Switch
             checked={draft.enableTreeApi}
-            onChange={(event) => setDraft((prev) => prev ? { ...prev, enableTreeApi: event.currentTarget.checked } : prev)}
+            onChange={(event) => {
+              const checked = event.currentTarget.checked;
+              setDraft((prev) => prev ? { ...prev, enableTreeApi: checked } : prev);
+            }}
             label="Enable tree API endpoint"
             description="Allows /api/tree (uses duc json, disabled by default for safety)"
           />

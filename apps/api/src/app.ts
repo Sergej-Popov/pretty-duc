@@ -80,7 +80,7 @@ export function createApp(initialConfig: AppConfig) {
     const minSize = parsed.minSize ?? currentConfig.defaultMinSize;
     const levels = Math.min(parsed.levels, currentConfig.limits.maxChildrenLevels);
     request.log.info(
-      { path: requestedPath, levels, sort: parsed.sort, minSize, maxNodes: currentConfig.limits.maxRecursiveNodes },
+      { path: requestedPath, levels, sort: parsed.sort, minSize, maxNodes: currentConfig.limits.maxRecursiveNodes, apparent: parsed.apparent },
       'children request started'
     );
     const result = await getChildrenTree({
@@ -92,7 +92,8 @@ export function createApp(initialConfig: AppConfig) {
       maxNodes: currentConfig.limits.maxRecursiveNodes,
       maxChildrenPerDirectory: currentConfig.limits.maxChildrenPerDirectory,
       maxResponseBytes: currentConfig.limits.maxChildrenResponseBytes,
-      executor
+      executor,
+      apparent: parsed.apparent
     });
 
     request.log.info(
@@ -105,6 +106,7 @@ export function createApp(initialConfig: AppConfig) {
       levels,
       sort: parsed.sort,
       appliedMinSize: minSize,
+      apparent: parsed.apparent,
       truncated: result.truncated,
       totalSizeBytes: result.totalSizeBytes,
       children: result.children
@@ -157,6 +159,35 @@ export function createApp(initialConfig: AppConfig) {
 
     assertReasonablePayload(result.nodeCount, currentConfig.limits.maxTreeResponseBytes);
     return payload;
+  });
+
+  app.post('/api/index', async (request) => {
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const targetPath = typeof body.path === 'string' && body.path.length > 0 ? body.path : null;
+
+    if (targetPath) {
+      resolveRequestedPath(currentConfig.root, targetPath);
+    }
+
+    const displayPath = targetPath ?? currentConfig.root;
+    const args = ['index', '-d', currentConfig.database, '--'];
+    if (targetPath) {
+      args.push(targetPath);
+    }
+
+    Bun.spawn([currentConfig.ducBin, ...args], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      onExit: (proc, exitCode) => {
+        if (exitCode === 0) {
+          request.log.info({ path: displayPath }, 'duc index completed successfully');
+        } else {
+          request.log.error({ path: displayPath, exitCode }, 'duc index failed');
+        }
+      }
+    });
+
+    request.log.info({ path: displayPath }, 'duc index started');
+    return { ok: true, message: `Indexing started for ${displayPath}` };
   });
 
   app.get('/api/config', async () => {
@@ -245,7 +276,7 @@ export function createApp(initialConfig: AppConfig) {
   return app;
 }
 
-function parseChildrenQuery(query: unknown): { path: string; levels: number; sort: SortMode; minSize?: number | null } {
+function parseChildrenQuery(query: unknown): { path: string; levels: number; sort: SortMode; minSize?: number | null; apparent: boolean } {
   if (!query || typeof query !== 'object') {
     throw new ApiError(422, 'INVALID_QUERY', 'Invalid children query');
   }
@@ -259,6 +290,9 @@ function parseChildrenQuery(query: unknown): { path: string; levels: number; sor
   const minSize = source.minSize === undefined || source.minSize === null || source.minSize === ''
     ? undefined
     : Number.parseInt(String(source.minSize), 10);
+  const apparent = source.apparent === undefined || source.apparent === null
+    ? true
+    : source.apparent === 'true' || source.apparent === '1' || source.apparent === true;
 
   if (!path) {
     throw new ApiError(422, 'INVALID_QUERY', 'Invalid children query', { issues: [{ path: ['path'], message: 'Path is required' }] });
@@ -272,5 +306,5 @@ function parseChildrenQuery(query: unknown): { path: string; levels: number; sor
     throw new ApiError(422, 'INVALID_QUERY', 'Invalid children query', { issues: [{ path: ['minSize'], message: 'Minimum size must be a non-negative integer' }] });
   }
 
-  return { path, levels, sort, minSize };
+  return { path, levels, sort, minSize, apparent };
 }

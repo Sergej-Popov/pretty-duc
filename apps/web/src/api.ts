@@ -19,11 +19,12 @@ export function fetchInfo() {
   return getJson<InfoResponse>('/api/info');
 }
 
-export function fetchChildren(path: string, levels: number, sort: SortMode, minSize?: number | null) {
+export function fetchChildren(path: string, levels: number, sort: SortMode, minSize?: number | null, apparent = true) {
   const params = new URLSearchParams({
     path,
     levels: String(levels),
-    sort
+    sort,
+    apparent: String(apparent)
   });
 
   if (minSize !== undefined && minSize !== null) {
@@ -63,4 +64,12 @@ export function updateConfig(config: UserConfig) {
 
 export function resetConfig() {
   return fetch('/api/config/reset', { method: 'POST' });
+}
+
+export function triggerIndex(path?: string) {
+  return fetch('/api/index', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(path ? { path } : {})
+  });
 }

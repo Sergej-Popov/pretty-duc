@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActionIcon,
   AppShell,
@@ -13,8 +13,10 @@ import {
   Flex,
   Grid,
   Group,
+  Kbd,
   Loader,
   Menu,
+  Modal,
   Paper,
   Progress,
   ScrollArea,
@@ -32,9 +34,9 @@ import {
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import type { ChildrenResponse, ExplorerNode, SortMode } from '@pretty-duc/contracts';
+import type { ChildrenResponse, ExplorerNode, SortMode, TreeResponse } from '@pretty-duc/contracts';
 import { buildBreadcrumbs, filterNodes, formatBytes, toChartTree } from '@pretty-duc/ui-model';
-import { fetchChildren, fetchHealth, fetchInfo } from './api';
+import { fetchChildren, fetchHealth, fetchInfo, fetchTree, triggerIndex } from './api';
 import { ExplorerChart, type ChartColorTheme, type ChartViewMode, type SunburstHighlightMode } from './ExplorerChart';
 import { SettingsModal } from './SettingsModal';
 
@@ -49,13 +51,18 @@ interface Bookmark {
 export function App() {
   const [mobileOpened, { toggle }] = useDisclosure();
   const [settingsOpened, { open: openSettings, close: closeSettings }] = useDisclosure(false);
+  const [helpOpened, { open: openHelp, close: closeHelp }] = useDisclosure(false);
+  const [useApparentSize, setUseApparentSize] = useState(true);
+  const [useExactSizes, setUseExactSizes] = useState(false);
+  const [useFileCount, setUseFileCount] = useState(false);
   const [path, setPath] = useState(getInitialPath);
   const [sort, setSort] = useState<TableSortMode>(getInitialSort);
   const [view, setView] = useState<ViewMode>(getInitialView);
   const [chartColorTheme, setChartColorTheme] = useState<ChartColorTheme>(getInitialChartColorTheme);
   const [depth, setDepth] = useState(getInitialDepth);
   const [query, setQuery] = useState(getInitialQuery);
-  const [data, setData] = useState<ChildrenResponse | null>(null);
+  const [data, setData] = useState<ChildrenResponse | TreeResponse | null>(null);
+  const [treeMode, setTreeMode] = useState(false);
   const [health, setHealth] = useState<string>('Checking service');
   const [info, setInfo] = useState<string>('Loading Duc metadata');
   const [rootPath, setRootPath] = useState('/scan/root');
@@ -86,6 +93,15 @@ export function App() {
   const selectedIndexRef = useRef(selectedIndex);
   selectedIndexRef.current = selectedIndex;
 
+  const dataRef = useRef(data?.children);
+  dataRef.current = data?.children;
+
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
+
+  const selectByPathRef = useRef(selectByPath);
+  selectByPathRef.current = selectByPath;
+
   useEffect(() => {
     const el = inputRef.current;
     if (!el) return;
@@ -93,6 +109,7 @@ export function App() {
     function onNativeKeyDown(e: globalThis.KeyboardEvent) {
       if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && suggestionsRef.current.length > 0) {
         e.preventDefault();
+        e.stopPropagation();
         setSelectedIndex((i) =>
           e.key === 'ArrowDown'
             ? Math.min(i + 1, suggestionsRef.current.length - 1)
@@ -101,18 +118,21 @@ export function App() {
       }
       if (e.key === 'Enter' && suggestionsRef.current.length > 0) {
         e.preventDefault();
+        e.stopPropagation();
         const idx = selectedIndexRef.current;
         const selected = suggestionsRef.current[Math.min(idx, suggestionsRef.current.length - 1)]!;
         const cleanName = selected.endsWith('/') ? selected.slice(0, -1) : selected;
-        const found = findNodeByNameInLevel(data?.children ?? [], queryRef.current, cleanName);
+        const found = findNodeByNameInLevel(dataRef.current ?? [], queryRef.current, cleanName);
         if (found) {
-          setQuery('');
-          setSelectedIndex(0);
-          setDropdownOpen(false);
           if (found.type === 'directory') {
-            navigate(found.path);
+            setQuery('');
+            setSelectedIndex(0);
+            navigateRef.current(found.path);
           } else {
-            selectByPath(found.path);
+            setQuery('');
+            setSelectedIndex(0);
+            setDropdownOpen(false);
+            selectByPathRef.current(found.path);
           }
           return;
         }
@@ -129,7 +149,7 @@ export function App() {
 
     el.addEventListener('keydown', onNativeKeyDown, { capture: true });
     return () => el.removeEventListener('keydown', onNativeKeyDown, { capture: true });
-  }, [navigate, selectByPath]);
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -207,7 +227,7 @@ export function App() {
       setError(null);
 
       try {
-        const children = await fetchChildren(path, depth, toApiSort(sort));
+        const children = await fetchChildren(path, depth, toApiSort(sort), undefined, useApparentSize);
 
         if (ignore) return;
         setData(children);
@@ -224,7 +244,7 @@ export function App() {
     return () => {
       ignore = true;
     };
-  }, [depth, path, sort]);
+  }, [depth, path, sort, useApparentSize]);
 
   const visibleNodes = useMemo(() => {
     const effectiveQuery = query.includes('/') ? '' : query;
@@ -250,8 +270,20 @@ export function App() {
       return toChartTree([sunburstRootNode]).map((node) => markHiddenChartNodes(node, hiddenPaths));
     }
 
-    return toChartTree(chartSourceNodes).map((node) => markHiddenChartNodes(node, hiddenPaths));
-  }, [chartSourceNodes, hiddenPaths, sunburstRootNode, view]);
+    let nodes = toChartTree(chartSourceNodes).map((node) => markHiddenChartNodes(node, hiddenPaths));
+
+    if (view === 'tree' || view === 'tree-radial') {
+      const parentName = breadcrumbs[breadcrumbs.length - 1]?.label ?? path;
+      nodes = [{
+        name: parentName,
+        value: data?.totalSizeBytes ?? 0,
+        path: path,
+        children: nodes
+      }];
+    }
+
+    return nodes;
+  }, [chartSourceNodes, hiddenPaths, sunburstRootNode, view, breadcrumbs, data?.totalSizeBytes, path]);
 
   const suggestions = useMemo(() => getAutocompleteSuggestions(data?.children ?? [], query), [data?.children, query]);
   suggestionsRef.current = suggestions;
@@ -300,6 +332,7 @@ export function App() {
       notifications.show({ message: 'Cannot navigate above root directory', color: 'yellow' });
       return;
     }
+    setTreeMode(false);
     setPath(nextPath);
     setActiveIndex(0);
   }
@@ -318,25 +351,19 @@ export function App() {
     }
   }
 
-  function handleKeyNav(event: KeyboardEvent<HTMLDivElement>) {
-    if (!visibleNodes.length) return;
+  async function loadTree() {
+    setLoading(true);
+    setError(null);
+    setTreeMode(true);
 
-    if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      setActiveIndex((current) => Math.min(current + 1, visibleNodes.length - 1));
-    }
-
-    if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      setActiveIndex((current) => Math.max(current - 1, 0));
-    }
-
-    if (event.key === 'Enter' && highlighted?.type === 'directory') {
-      navigate(highlighted.path);
-    }
-
-    if (event.key === 'Backspace') {
-      navigateUp();
+    try {
+      const tree = await fetchTree(path);
+      setData(tree);
+    } catch (loadError) {
+      setTreeMode(false);
+      setError(loadError instanceof Error ? loadError.message : 'Failed to load tree');
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -383,6 +410,145 @@ export function App() {
 
   const isCurrentPathBookmarked = bookmarks.some(b => b.path === path);
 
+  const navStateRef = useRef({ visibleNodes, highlighted, navigate, navigateUp, activeIndex, settingsOpened, helpOpened, contextMenu, useApparentSize, useExactSizes, useFileCount, sort, showHiddenItems, useDecal, showLabels });
+  navStateRef.current = { visibleNodes, highlighted, navigate, navigateUp, activeIndex, settingsOpened, helpOpened, contextMenu, useApparentSize, useExactSizes, useFileCount, sort, showHiddenItems, useDecal, showLabels };
+
+  useEffect(() => {
+    function onGlobalKeyDown(e: globalThis.KeyboardEvent) {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+
+      const tag = target.tagName.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || target.isContentEditable) {
+        return;
+      }
+
+      const state = navStateRef.current;
+      if (state.settingsOpened || state.helpOpened || state.contextMenu) {
+        return;
+      }
+
+      if (e.key === '?') {
+        e.preventDefault();
+        openHelp();
+        return;
+      }
+
+      if (!state.visibleNodes.length) return;
+
+      if (e.key === 'ArrowDown' || e.key === 'j') {
+        e.preventDefault();
+        setActiveIndex((current) => Math.min(current + 1, state.visibleNodes.length - 1));
+        return;
+      }
+
+      if (e.key === 'ArrowUp' || e.key === 'k') {
+        e.preventDefault();
+        setActiveIndex((current) => Math.max(current - 1, 0));
+        return;
+      }
+
+      if (e.key === 'PageDown') {
+        e.preventDefault();
+        setActiveIndex((current) => Math.min(current + 10, state.visibleNodes.length - 1));
+        return;
+      }
+
+      if (e.key === 'PageUp') {
+        e.preventDefault();
+        setActiveIndex((current) => Math.max(current - 10, 0));
+        return;
+      }
+
+      if (e.key === 'Home' || e.key === '0') {
+        e.preventDefault();
+        setActiveIndex(0);
+        return;
+      }
+
+      if (e.key === 'End' || e.key === '$') {
+        e.preventDefault();
+        setActiveIndex(state.visibleNodes.length - 1);
+        return;
+      }
+
+      if ((e.key === 'ArrowRight' || e.key === 'Enter') && state.highlighted?.type === 'directory') {
+        e.preventDefault();
+        state.navigate(state.highlighted.path);
+        return;
+      }
+
+      if (e.key === 'ArrowLeft' || e.key === 'Backspace') {
+        e.preventDefault();
+        state.navigateUp();
+        return;
+      }
+
+      if (e.key === 'a') {
+        e.preventDefault();
+        setUseApparentSize((current) => !current);
+        notifications.show({ message: state.useApparentSize ? 'Switched to actual disk usage' : 'Switched to apparent size', color: 'dark' });
+        return;
+      }
+
+      if (e.key === 'b') {
+        e.preventDefault();
+        setUseExactSizes((current) => !current);
+        notifications.show({ message: state.useExactSizes ? 'Switched to abbreviated sizes' : 'Switched to exact sizes', color: 'dark' });
+        return;
+      }
+
+      if (e.key === 'c') {
+        e.preventDefault();
+        setUseFileCount((current) => !current);
+        notifications.show({ message: state.useFileCount ? 'Switched to file size' : 'Switched to file count', color: 'dark' });
+        return;
+      }
+
+      if (e.key === 'h') {
+        e.preventDefault();
+        openHelp();
+        return;
+      }
+
+      if (e.key === 'n') {
+        e.preventDefault();
+        setSort((current) => current === 'sizeDesc' ? 'nameAsc' : 'sizeDesc');
+        notifications.show({ message: state.sort === 'sizeDesc' ? 'Sorted by name' : 'Sorted by size', color: 'dark' });
+        return;
+      }
+
+      if (e.key === 'i') {
+        e.preventDefault();
+        setShowHiddenItems((current) => !current);
+        notifications.show({ message: state.showHiddenItems ? 'Hidden items hidden' : 'Showing hidden items', color: 'dark' });
+        return;
+      }
+
+      if (e.key === 'd') {
+        e.preventDefault();
+        setUseDecal((current) => !current);
+        notifications.show({ message: state.useDecal ? 'Decal pattern disabled' : 'Decal pattern enabled', color: 'dark' });
+        return;
+      }
+
+      if (e.key === 'l') {
+        e.preventDefault();
+        setShowLabels((current) => !current);
+        notifications.show({ message: state.showLabels ? 'Labels hidden' : 'Labels shown', color: 'dark' });
+        return;
+      }
+
+      if (e.key === 'f') {
+        e.preventDefault();
+        inputRef.current?.focus();
+      }
+    }
+
+    window.addEventListener('keydown', onGlobalKeyDown);
+    return () => window.removeEventListener('keydown', onGlobalKeyDown);
+  }, []);
+
   return (
     <AppShell
       className="pretty-duc-shell"
@@ -420,6 +586,17 @@ export function App() {
                 &#x2699;
               </ActionIcon>
             </Tooltip>
+            <Tooltip label="Keyboard shortcuts">
+              <ActionIcon
+                className="help-button"
+                variant="default"
+                radius="sm"
+                size="lg"
+                onClick={openHelp}
+              >
+                ?
+              </ActionIcon>
+            </Tooltip>
             <Tooltip label="Toggle color scheme">
               <ActionIcon
                 className="color-scheme-toggle"
@@ -452,6 +629,60 @@ export function App() {
                   <Button className="navigate-root-button" variant="default" radius="sm" onClick={() => navigate(rootPath)}>Root</Button>
                 </Group>
                 <Button className="refresh-listing-button" variant="subtle" radius="sm" onClick={() => navigate(path)}>Refresh listing</Button>
+                <Tooltip label="Experimental: loads full recursive tree via duc json. May be slow on large directories." multiline w={220}>
+                  <Button
+                    className="load-tree-button"
+                    variant="subtle"
+                    radius="sm"
+                    color="yellow"
+                    onClick={loadTree}
+                    loading={loading && treeMode}
+                  >
+                    Load whole tree
+                  </Button>
+                </Tooltip>
+                {treeMode ? (
+                  <Text size="xs" c="yellow">Tree mode active. Click Refresh listing to return to normal browsing.</Text>
+                ) : null}
+                <Divider />
+                <Text size="xs" tt="uppercase" fw={700} c="dimmed">Re-index</Text>
+                <Group gap="xs">
+                  <Tooltip label="Runs duc index on the current directory only">
+                    <Button
+                      variant="subtle"
+                      radius="sm"
+                      size="compact-sm"
+                      onClick={async () => {
+                        try {
+                          await triggerIndex(path);
+                          notifications.show({ message: `Indexing started for current directory`, color: 'green' });
+                        } catch {
+                          notifications.show({ message: 'Failed to start indexing', color: 'red' });
+                        }
+                      }}
+                    >
+                      Current
+                    </Button>
+                  </Tooltip>
+                  <Tooltip label="Runs duc index on the entire scan root. This may take a long time." multiline w={220}>
+                    <Button
+                      variant="subtle"
+                      radius="sm"
+                      size="compact-sm"
+                      color="orange"
+                      onClick={async () => {
+                        try {
+                          await triggerIndex();
+                          notifications.show({ message: `Indexing started for ${rootPath}`, color: 'green' });
+                        } catch {
+                          notifications.show({ message: 'Failed to start indexing', color: 'red' });
+                        }
+                      }}
+                    >
+                      All
+                    </Button>
+                  </Tooltip>
+                </Group>
               </Stack>
             </Paper>
 
@@ -510,7 +741,6 @@ export function App() {
                       setSelectedIndex(0);
                       setDropdownOpen(true);
                     }}
-                    onKeyDown={() => {}}
                     onBlur={() => {
                       setTimeout(() => setDropdownOpen(false), 150);
                     }}
@@ -557,8 +787,8 @@ export function App() {
                           style={{
                             padding: '8px 12px',
                             cursor: 'pointer',
-                            borderBottom: '1px solid var(--mantine-color-dimmed-border)',
-                            backgroundColor: index === selectedIndex ? 'var(--mantine-color-dimmed-bg)' : 'transparent'
+                            borderBottom: '1px solid var(--mantine-color-default-border)',
+                            backgroundColor: index === selectedIndex ? 'var(--mantine-color-dark-light)' : 'transparent'
                           }}
                           onMouseEnter={(e) => {
                             setSelectedIndex(index);
@@ -816,7 +1046,7 @@ export function App() {
               </Grid.Col>
 
               <Grid.Col className="listing-column" span={12}>
-                <Paper className="directory-listing-panel" withBorder p="md" radius="sm" onKeyDown={handleKeyNav} tabIndex={0}>
+                <Paper className="directory-listing-panel" withBorder p="md" radius="sm">
                   <Stack className="directory-listing-content" gap="md">
                     <Group className="directory-listing-header" justify="space-between">
                       <Box className="directory-listing-title-block">
@@ -841,7 +1071,8 @@ export function App() {
                             </Table.Th>
                             <Table.Th className="directory-table-heading directory-table-heading-size">
                               <Button className="sort-size-button" variant="subtle" size="compact-sm" px={0} onClick={() => toggleSort('size')}>
-                                Size{sort === 'sizeAsc' ? ' ^' : sort === 'sizeDesc' ? ' v' : ''}
+                                {useFileCount ? 'Count' : useExactSizes ? 'Size (bytes)' : 'Size'}
+                                {sort === 'sizeAsc' ? ' ^' : sort === 'sizeDesc' ? ' v' : ''}
                               </Button>
                             </Table.Th>
                             <Table.Th className="directory-table-heading directory-table-heading-share">Share</Table.Th>
@@ -893,7 +1124,12 @@ export function App() {
                                   {hiddenPaths.includes(node.path) ? <Badge className="directory-entry-hidden-badge" color="orange">hidden</Badge> : null}
                                 </Group>
                               </Table.Td>
-                              <Table.Td className="directory-table-cell directory-table-cell-size">{node.humanSize}</Table.Td>
+                              <Table.Td className="directory-table-cell directory-table-cell-size">
+                                {useFileCount
+                                  ? (node.type === 'file' ? '1' : String(node.children?.length ?? '?'))
+                                  : (useExactSizes ? String(node.sizeBytes) : node.humanSize)
+                                }
+                              </Table.Td>
                               <Table.Td className="directory-table-cell directory-table-cell-share">{node.percentOfParent.toFixed(2)}%</Table.Td>
                             </Table.Tr>
                           ))}
@@ -941,6 +1177,36 @@ export function App() {
         </Menu.Dropdown>
       </Menu>
       <SettingsModal opened={settingsOpened} onClose={closeSettings} />
+      <Modal opened={helpOpened} onClose={closeHelp} title="Keyboard shortcuts" size="md">
+        <Table>
+          <Table.Thead>
+            <Table.Tr>
+              <Table.Th>Key</Table.Th>
+              <Table.Th>Action</Table.Th>
+            </Table.Tr>
+          </Table.Thead>
+          <Table.Tbody>
+            <Table.Tr><Table.Td><Kbd>j</Kbd> / <Kbd>↓</Kbd></Table.Td><Table.Td>Move cursor down</Table.Td></Table.Tr>
+            <Table.Tr><Table.Td><Kbd>k</Kbd> / <Kbd>↑</Kbd></Table.Td><Table.Td>Move cursor up</Table.Td></Table.Tr>
+            <Table.Tr><Table.Td><Kbd>PgDn</Kbd></Table.Td><Table.Td>Move cursor down 10 rows</Table.Td></Table.Tr>
+            <Table.Tr><Table.Td><Kbd>PgUp</Kbd></Table.Td><Table.Td>Move cursor up 10 rows</Table.Td></Table.Tr>
+            <Table.Tr><Table.Td><Kbd>Home</Kbd> / <Kbd>0</Kbd></Table.Td><Table.Td>Move cursor to top</Table.Td></Table.Tr>
+            <Table.Tr><Table.Td><Kbd>End</Kbd> / <Kbd>$</Kbd></Table.Td><Table.Td>Move cursor to bottom</Table.Td></Table.Tr>
+            <Table.Tr><Table.Td><Kbd>←</Kbd> / <Kbd>Backspace</Kbd></Table.Td><Table.Td>Go up to parent directory</Table.Td></Table.Tr>
+            <Table.Tr><Table.Td><Kbd>→</Kbd> / <Kbd>Enter</Kbd></Table.Td><Table.Td>Descend into selected directory</Table.Td></Table.Tr>
+            <Table.Tr><Table.Td><Kbd>a</Kbd></Table.Td><Table.Td>Toggle apparent vs actual disk usage</Table.Td></Table.Tr>
+            <Table.Tr><Table.Td><Kbd>b</Kbd></Table.Td><Table.Td>Toggle abbreviated vs exact sizes</Table.Td></Table.Tr>
+            <Table.Tr><Table.Td><Kbd>c</Kbd></Table.Td><Table.Td>Toggle file size vs file count</Table.Td></Table.Tr>
+            <Table.Tr><Table.Td><Kbd>n</Kbd></Table.Td><Table.Td>Toggle sort order (size / name)</Table.Td></Table.Tr>
+            <Table.Tr><Table.Td><Kbd>i</Kbd></Table.Td><Table.Td>Show / hide hidden items</Table.Td></Table.Tr>
+            <Table.Tr><Table.Td><Kbd>d</Kbd></Table.Td><Table.Td>Toggle decal pattern</Table.Td></Table.Tr>
+            <Table.Tr><Table.Td><Kbd>l</Kbd></Table.Td><Table.Td>Toggle chart labels</Table.Td></Table.Tr>
+            <Table.Tr><Table.Td><Kbd>f</Kbd></Table.Td><Table.Td>Focus filter input</Table.Td></Table.Tr>
+            <Table.Tr><Table.Td><Kbd>h</Kbd> / <Kbd>?</Kbd></Table.Td><Table.Td>Show this help</Table.Td></Table.Tr>
+            <Table.Tr><Table.Td>Type to filter</Table.Td><Table.Td>Filter directory listing by name</Table.Td></Table.Tr>
+          </Table.Tbody>
+        </Table>
+      </Modal>
     </AppShell>
   );
 }
@@ -1086,14 +1352,14 @@ function getInitialSort(): TableSortMode {
 }
 
 function getInitialDepth() {
-  if (typeof window === 'undefined') return 4;
+  if (typeof window === 'undefined') return 2;
   return toDepth(localStorage.getItem('depth'));
 }
 
 function toDepth(value: string | null) {
-  if (!value) return 4;
+  if (!value) return 2;
   const parsed = Number.parseInt(value, 10);
-  return parsed >= 1 && parsed <= 6 ? parsed : 4;
+  return parsed >= 1 && parsed <= 6 ? parsed : 2;
 }
 
 function getInitialQuery(): string {

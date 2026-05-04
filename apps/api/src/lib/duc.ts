@@ -76,6 +76,7 @@ export async function getChildrenTree(options: {
   maxChildrenPerDirectory: number;
   maxResponseBytes: number;
   executor: DucExecutor;
+  apparent: boolean;
 }): Promise<{ children: ExplorerNode[]; truncated: boolean; totalSizeBytes: number; nodeCount: number }> {
   const startedAt = Date.now();
   let nodeCount = 0;
@@ -88,7 +89,7 @@ export async function getChildrenTree(options: {
       throw new ApiError(504, 'DUC_TIMEOUT', 'Recursive request exceeded configured time budget');
     }
 
-    const args = ['ls', '-b', '-d', options.config.database, '-F', '--', currentPath];
+    const args = ['ls', ...(options.apparent ? ['-b'] : []), '-d', options.config.database, '-F', '--', currentPath];
 
     const result = await withLimit(localSemaphore, () => {
       if (Date.now() - startedAt > options.config.limits.recursiveBudgetMs) {

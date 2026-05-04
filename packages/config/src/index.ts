@@ -25,13 +25,13 @@ export const appDefaults = {
   enableTreeApi: false,
   ducTimeoutMs: 10000,
   recursiveBudgetMs: 15000,
-  defaultLevels: 1,
+  defaultLevels: 2,
   maxChildrenLevels: 6,
   maxTreeLevels: 2,
   maxChildrenPerDirectory: 2000,
-  maxRecursiveNodes: 5000,
+  maxRecursiveNodes: 10000,
   maxTreeNodes: 1000,
-  maxChildrenResponseBytes: 1024 * 1024,
+  maxChildrenResponseBytes: 10485760,
   maxTreeResponseBytes: 512 * 1024,
   recursiveConcurrency: 2
 } as const;
