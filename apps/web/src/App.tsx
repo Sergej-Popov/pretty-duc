@@ -7,7 +7,6 @@ import {
   Breadcrumbs,
   Burger,
   Button,
-  Card,
   Code,
   CopyButton,
   Divider,
@@ -15,13 +14,13 @@ import {
   Grid,
   Group,
   Loader,
-  NavLink,
+  Menu,
   Paper,
   Progress,
   ScrollArea,
   SegmentedControl,
-  SimpleGrid,
   Stack,
+  Switch,
   Table,
   Text,
   TextInput,
@@ -32,17 +31,18 @@ import {
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import type { ChildrenResponse, SortMode } from '@pretty-duc/contracts';
-import { buildBreadcrumbs, filterNodes, formatBytes, largestItems, toChartTree } from '@pretty-duc/ui-model';
+import type { ChildrenResponse, ExplorerNode, SortMode } from '@pretty-duc/contracts';
+import { buildBreadcrumbs, filterNodes, formatBytes, toChartTree } from '@pretty-duc/ui-model';
 import { fetchChildren, fetchHealth, fetchInfo } from './api';
-import { ExplorerChart } from './ExplorerChart';
+import { ExplorerChart, type SunburstHighlightMode } from './ExplorerChart';
 
 type ViewMode = 'treemap' | 'sunburst';
+type TableSortMode = 'sizeDesc' | 'sizeAsc' | 'nameAsc' | 'nameDesc' | 'typeAsc' | 'typeDesc';
 
 export function App() {
   const [mobileOpened, { toggle }] = useDisclosure();
   const [path, setPath] = useState(getInitialPath);
-  const [sort, setSort] = useState<SortMode>(getInitialSort);
+  const [sort, setSort] = useState<TableSortMode>(getInitialSort);
   const [view, setView] = useState<ViewMode>(getInitialView);
   const [query, setQuery] = useState(getInitialQuery);
   const [data, setData] = useState<ChildrenResponse | null>(null);
@@ -52,6 +52,12 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [hiddenPaths, setHiddenPaths] = useState<string[]>([]);
+  const [showHiddenItems, setShowHiddenItems] = useState(false);
+  const [sunburstRootPath, setSunburstRootPath] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ path: string; x: number; y: number } | null>(null);
+  const [useDecal, setUseDecal] = useState(false);
+  const [sunburstHighlightMode, setSunburstHighlightMode] = useState<SunburstHighlightMode>('ancestor');
   const { colorScheme, setColorScheme } = useMantineColorScheme();
 
   useEffect(() => {
@@ -70,7 +76,11 @@ export function App() {
 
   useEffect(() => {
     setActiveIndex(0);
-  }, [query]);
+  }, [query, sort, path]);
+
+  useEffect(() => {
+    setSunburstRootPath(null);
+  }, [path]);
 
   useEffect(() => {
     fetchHealth()
@@ -93,7 +103,7 @@ export function App() {
       setError(null);
 
       try {
-        const children = await fetchChildren(path, 2, sort);
+        const children = await fetchChildren(path, 2, toApiSort(sort));
 
         if (ignore) return;
         setData(children);
@@ -112,14 +122,46 @@ export function App() {
     };
   }, [path, sort]);
 
-  const filteredNodes = useMemo(() => filterNodes(data?.children ?? [], query), [data?.children, query]);
-  const highlighted = filteredNodes[activeIndex] ?? null;
-  const summaryItems = useMemo(() => largestItems(filteredNodes, 6), [filteredNodes]);
+  const visibleNodes = useMemo(() => {
+    const filtered = filterNodes(data?.children ?? [], query);
+    const withVisibility = showHiddenItems ? filtered : filtered.filter((node) => !hiddenPaths.includes(node.path));
+    return sortVisibleNodes(withVisibility, sort);
+  }, [data?.children, query, sort, hiddenPaths, showHiddenItems]);
+  const highlighted = visibleNodes[activeIndex] ?? null;
   const breadcrumbs = useMemo(() => buildBreadcrumbs(path), [path]);
-  const chartNodes = useMemo(() => toChartTree(data?.children ?? []), [data?.children]);
-  const directoryCount = filteredNodes.filter((node) => node.type === 'directory').length;
-  const fileCount = filteredNodes.length - directoryCount;
-  const largestNode = filteredNodes[0] ?? null;
+  const directoryCount = visibleNodes.filter((node) => node.type === 'directory').length;
+  const fileCount = visibleNodes.length - directoryCount;
+  const largestNode = sortVisibleNodes(visibleNodes, 'sizeDesc')[0] ?? null;
+  const currentDirectoryShare = data?.totalSizeBytes
+    ? Number(((visibleNodes.reduce((sum, node) => sum + node.sizeBytes, 0) / data.totalSizeBytes) * 100).toFixed(2))
+    : 0;
+  const chartSourceNodes = useMemo(
+    () => showHiddenItems ? visibleNodes : filterHiddenTree(visibleNodes, hiddenPaths),
+    [hiddenPaths, showHiddenItems, visibleNodes]
+  );
+  const sunburstRootNode = useMemo(() => findNodeByPath(chartSourceNodes, sunburstRootPath), [chartSourceNodes, sunburstRootPath]);
+  const chartNodes = useMemo(() => {
+    if (view === 'sunburst' && sunburstRootNode) {
+      return toChartTree([sunburstRootNode]).map((node) => markHiddenChartNodes(node, hiddenPaths));
+    }
+
+    return toChartTree(chartSourceNodes).map((node) => markHiddenChartNodes(node, hiddenPaths));
+  }, [chartSourceNodes, hiddenPaths, sunburstRootNode, view]);
+
+  useEffect(() => {
+    if (sunburstRootPath && !findNodeByPath(chartSourceNodes, sunburstRootPath)) {
+      setSunburstRootPath(null);
+    }
+  }, [chartSourceNodes, sunburstRootPath]);
+
+  useEffect(() => {
+    if (!visibleNodes.length) {
+      setActiveIndex(0);
+      return;
+    }
+
+    setActiveIndex((current) => Math.min(current, visibleNodes.length - 1));
+  }, [visibleNodes]);
 
   function navigate(nextPath: string) {
     setPath(nextPath);
@@ -134,11 +176,11 @@ export function App() {
   }
 
   function handleKeyNav(event: KeyboardEvent<HTMLDivElement>) {
-    if (!filteredNodes.length) return;
+    if (!visibleNodes.length) return;
 
     if (event.key === 'ArrowDown') {
       event.preventDefault();
-      setActiveIndex((current) => Math.min(current + 1, filteredNodes.length - 1));
+      setActiveIndex((current) => Math.min(current + 1, visibleNodes.length - 1));
     }
 
     if (event.key === 'ArrowUp') {
@@ -153,6 +195,47 @@ export function App() {
     if (event.key === 'Backspace') {
       navigateUp();
     }
+  }
+
+  function selectByPath(selectedPath: string) {
+    const nextIndex = visibleNodes.findIndex((node) => node.path === selectedPath);
+    if (nextIndex >= 0) {
+      setActiveIndex(nextIndex);
+    }
+
+    const selectedNode = findNodeByPath(visibleNodes, selectedPath);
+
+    if (selectedNode?.type === 'directory') {
+      navigate(selectedPath);
+      return;
+    }
+
+    if (view === 'sunburst' && selectedNode?.children?.length) {
+      setSunburstRootPath(selectedPath);
+    }
+  }
+
+  function toggleHiddenPath(targetPath: string) {
+    setHiddenPaths((current) => current.includes(targetPath) ? current.filter((pathItem) => pathItem !== targetPath) : [...current, targetPath]);
+    setContextMenu(null);
+  }
+
+  function openContextMenu(targetPath: string, position: { x: number; y: number }) {
+    setContextMenu({ path: targetPath, x: position.x, y: position.y });
+  }
+
+  function moveSunburstUp() {
+    setSunburstRootPath((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return getSunburstParentPath(path, current);
+    });
+  }
+
+  function toggleSort(column: 'name' | 'size' | 'type') {
+    setSort((current) => nextTableSort(current, column));
   }
 
   return (
@@ -175,7 +258,6 @@ export function App() {
                   {health}
                 </Badge>
               </Group>
-              <Text size="sm" c="dimmed">Disk usage intelligence over the Duc index</Text>
             </Box>
           </Group>
 
@@ -205,7 +287,6 @@ export function App() {
                     <Text size="xs" tt="uppercase" fw={700} c="dimmed">Active scope</Text>
                     <Text fw={700} mt={4}>Current path</Text>
                   </Box>
-                  <Badge variant="outline" color="gray">{view}</Badge>
                 </Group>
                 <Code block>{path}</Code>
                 <Group grow>
@@ -226,15 +307,6 @@ export function App() {
                   data={[
                     { label: 'Treemap', value: 'treemap' },
                     { label: 'Sunburst', value: 'sunburst' }
-                  ]}
-                />
-                <SegmentedControl
-                  radius="sm"
-                  value={sort}
-                  onChange={(value) => setSort(value as SortMode)}
-                  data={[
-                    { label: 'By size', value: 'sizeDesc' },
-                    { label: 'By name', value: 'nameAsc' }
                   ]}
                 />
                 <TextInput
@@ -260,6 +332,31 @@ export function App() {
                     </Button>
                   )}
                 </CopyButton>
+                <Switch
+                  checked={showHiddenItems}
+                  onChange={(event) => setShowHiddenItems(event.currentTarget.checked)}
+                  label={hiddenPaths.length > 0 ? `Show hidden items (${hiddenPaths.length})` : 'Show hidden items'}
+                />
+                <Switch
+                  checked={useDecal}
+                  onChange={(event) => setUseDecal(event.currentTarget.checked)}
+                  label="Enable decal pattern"
+                />
+                {view === 'sunburst' ? (
+                  <Switch
+                    checked={sunburstHighlightMode === 'descendant'}
+                    onChange={(event) => setSunburstHighlightMode(event.currentTarget.checked ? 'descendant' : 'ancestor')}
+                    label="Highlight children on hover"
+                  />
+                ) : null}
+                <Button
+                  variant="subtle"
+                  radius="sm"
+                  onClick={() => setHiddenPaths([])}
+                  disabled={hiddenPaths.length === 0}
+                >
+                  Reset hidden list
+                </Button>
               </Stack>
             </Paper>
           </Stack>
@@ -267,34 +364,13 @@ export function App() {
 
         <Divider my="md" />
 
-        <AppShell.Section grow component={ScrollArea}>
-          <Stack gap="xs">
-            <Text size="xs" tt="uppercase" fw={700} c="dimmed">Largest items</Text>
-            {summaryItems.map((item) => (
-              <NavLink
-                key={item.path}
-                label={item.name}
-                description={item.path}
-                variant="subtle"
-                active={highlighted?.path === item.path}
-                onClick={() => item.type === 'directory' && navigate(item.path)}
-                rightSection={<Badge color={item.type === 'directory' ? 'blue' : 'gray'}>{item.humanSize}</Badge>}
-              />
-            ))}
-          </Stack>
-        </AppShell.Section>
       </AppShell.Navbar>
 
       <AppShell.Main>
         <Stack gap="lg">
           <Paper withBorder p="lg" radius="sm">
             <Stack gap="lg">
-              <Group justify="space-between" align="flex-start">
-                <Box>
-                  <Text size="xs" tt="uppercase" fw={700} c="dimmed">Explorer</Text>
-                  <Title order={3} mt={4}>Visual breakdown of the active directory</Title>
-                  <Text size="sm" c="dimmed" mt={6}>Browse by chart, inspect by table, and move through the index with keyboard navigation.</Text>
-                </Box>
+              <Group justify="flex-end" align="flex-start">
                 <Badge variant="filled" color="dark" size="lg">{formatBytes(data?.totalSizeBytes ?? 0)} total</Badge>
               </Group>
 
@@ -306,12 +382,6 @@ export function App() {
                 ))}
               </Breadcrumbs>
 
-              <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="md">
-                <StatCard label="Visible items" value={String(filteredNodes.length)} hint="After current filter" />
-                <StatCard label="Directories" value={String(directoryCount)} hint="Expandable branches" />
-                <StatCard label="Files" value={String(fileCount)} hint="Leaf nodes" />
-                <StatCard label="Largest entry" value={largestNode?.name ?? 'None'} hint={largestNode?.humanSize ?? '0 B'} mono={false} />
-              </SimpleGrid>
             </Stack>
           </Paper>
 
@@ -333,13 +403,20 @@ export function App() {
                   <Stack gap="md" h="100%">
                     <Group justify="space-between">
                       <Box>
-                        <Text size="xs" tt="uppercase" fw={700} c="dimmed">Chart stage</Text>
-                        <Text fw={700}>Interactive {view}</Text>
+                        <Text fw={700}>{view === 'sunburst' ? 'Sunburst' : 'Treemap'}</Text>
                       </Box>
-                      <Badge variant="outline" color="gray">Click a directory to drill in</Badge>
                     </Group>
                     <Box style={{ minHeight: 460 }}>
-                      <ExplorerChart nodes={chartNodes} view={view} onNavigate={(chartPath) => navigate(chartPath)} />
+                      <ExplorerChart
+                        nodes={chartNodes}
+                        view={view}
+                        sunburstHighlightMode={sunburstHighlightMode}
+                        onSelect={selectByPath}
+                        onContextMenu={openContextMenu}
+                        onChartUp={moveSunburstUp}
+                        canChartGoUp={view === 'sunburst' && sunburstRootPath !== null}
+                        useDecal={useDecal}
+                      />
                     </Box>
                   </Stack>
                 </Paper>
@@ -349,34 +426,24 @@ export function App() {
                 <Stack gap="lg" h="100%">
                   <Paper withBorder p="md" radius="sm">
                     <Stack gap="sm">
-                      <Text size="xs" tt="uppercase" fw={700} c="dimmed">Selection</Text>
+                      <Text size="xs" tt="uppercase" fw={700} c="dimmed">Current directory</Text>
                       <Group justify="space-between" align="flex-start">
                         <Box>
-                          <Text fw={700}>{highlighted?.name ?? 'Nothing selected'}</Text>
-                          <Text size="sm" c="dimmed">{highlighted?.path ?? 'Use keyboard arrows or click a row'}</Text>
+                          <Text fw={700}>{breadcrumbs[breadcrumbs.length - 1]?.label ?? '/'}</Text>
+                          <Text size="sm" c="dimmed">{path}</Text>
                         </Box>
-                        {highlighted ? (
-                          <Badge color={highlighted.type === 'directory' ? 'blue' : 'gray'}>{highlighted.type}</Badge>
-                        ) : null}
+                        <Badge color="dark">directory</Badge>
                       </Group>
                       <Divider />
-                      <MetricRow label="Size" value={highlighted?.humanSize ?? '0 B'} />
-                      <MetricRow label="Share" value={highlighted ? `${highlighted.percentOfParent.toFixed(2)}%` : '0.00%'} />
-                      <MetricRow label="Children" value={highlighted?.hasChildren ? 'Yes' : 'No'} />
-                      <Progress value={highlighted?.percentOfParent ?? 0} color="dark" radius="xs" />
-                      {highlighted?.type === 'directory' ? (
-                        <Button radius="sm" onClick={() => navigate(highlighted.path)}>Open directory</Button>
-                      ) : null}
+                      <MetricRow label="Total size" value={formatBytes(data?.totalSizeBytes ?? 0)} />
+                      <MetricRow label="Visible children" value={String(visibleNodes.length)} />
+                      <MetricRow label="Directories" value={String(directoryCount)} />
+                      <MetricRow label="Files" value={String(fileCount)} />
+                      <MetricRow label="Largest child" value={largestNode?.name ?? 'None'} />
+                      <Progress value={currentDirectoryShare} color="dark" radius="xs" />
+                      <Text size="xs" c="dimmed">Visible rows account for {currentDirectoryShare.toFixed(2)}% of the current directory total.</Text>
                     </Stack>
                   </Paper>
-
-                  <Card withBorder radius="sm" padding="md">
-                    <Stack gap="xs">
-                      <Text size="xs" tt="uppercase" fw={700} c="dimmed">Operator notes</Text>
-                      <Text size="sm">Arrow keys move selection. Press <Code>Enter</Code> to open a directory and <Code>Backspace</Code> to move up.</Text>
-                      <Text size="sm" c="dimmed">The table below remains the authoritative listing for the current path.</Text>
-                    </Stack>
-                  </Card>
                 </Stack>
               </Grid.Col>
 
@@ -386,26 +453,47 @@ export function App() {
                     <Group justify="space-between">
                       <Box>
                         <Text size="xs" tt="uppercase" fw={700} c="dimmed">Directory listing</Text>
-                        <Text fw={700}>Largest items</Text>
                       </Box>
-                      <Badge variant="light" color="gray">{filteredNodes.length} rows</Badge>
+                      <Badge variant="light" color="gray">{visibleNodes.length} rows</Badge>
                     </Group>
 
                     <ScrollArea>
                       <Table highlightOnHover stickyHeader verticalSpacing="sm" horizontalSpacing="md">
                         <Table.Thead>
                           <Table.Tr>
-                            <Table.Th>Name</Table.Th>
-                            <Table.Th>Type</Table.Th>
-                            <Table.Th>Size</Table.Th>
+                            <Table.Th>
+                              <Button variant="subtle" size="compact-sm" px={0} onClick={() => toggleSort('name')}>
+                                Name{sort === 'nameAsc' ? ' ^' : sort === 'nameDesc' ? ' v' : ''}
+                              </Button>
+                            </Table.Th>
+                            <Table.Th>
+                              <Button variant="subtle" size="compact-sm" px={0} onClick={() => toggleSort('type')}>
+                                Type{sort === 'typeAsc' ? ' ^' : sort === 'typeDesc' ? ' v' : ''}
+                              </Button>
+                            </Table.Th>
+                            <Table.Th>
+                              <Button variant="subtle" size="compact-sm" px={0} onClick={() => toggleSort('size')}>
+                                Size{sort === 'sizeAsc' ? ' ^' : sort === 'sizeDesc' ? ' v' : ''}
+                              </Button>
+                            </Table.Th>
                             <Table.Th>Share</Table.Th>
                           </Table.Tr>
                         </Table.Thead>
                         <Table.Tbody>
-                          {filteredNodes.map((node, index) => (
+                          {visibleNodes.map((node, index) => (
                             <Table.Tr
                               key={node.path}
                               bg={index === activeIndex ? 'var(--mantine-color-dark-light)' : undefined}
+                              onClick={() => {
+                                setActiveIndex(index);
+                                if (node.type === 'directory') {
+                                  navigate(node.path);
+                                }
+                              }}
+                              onContextMenu={(event) => {
+                                event.preventDefault();
+                                openContextMenu(node.path, { x: event.clientX, y: event.clientY });
+                              }}
                             >
                               <Table.Td>
                                 <Group gap="xs" wrap="nowrap">
@@ -416,16 +504,24 @@ export function App() {
                                     variant="subtle"
                                     px={0}
                                     c="inherit"
-                                    onClick={() => node.type === 'directory' && navigate(node.path)}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      if (node.type === 'directory') {
+                                        navigate(node.path);
+                                      }
+                                    }}
                                   >
                                     {node.name}
                                   </Button>
                                 </Group>
                               </Table.Td>
                               <Table.Td>
-                                <Badge variant="outline" color={node.type === 'directory' ? 'blue' : 'gray'}>
-                                  {node.type}
-                                </Badge>
+                                <Group gap="xs">
+                                  <Badge variant="outline" color={node.type === 'directory' ? 'blue' : 'gray'}>
+                                    {node.type}
+                                  </Badge>
+                                  {hiddenPaths.includes(node.path) ? <Badge color="orange">hidden</Badge> : null}
+                                </Group>
                               </Table.Td>
                               <Table.Td>{node.humanSize}</Table.Td>
                               <Table.Td>{node.percentOfParent.toFixed(2)}%</Table.Td>
@@ -441,20 +537,82 @@ export function App() {
           )}
         </Stack>
       </AppShell.Main>
+
+      <Menu opened={contextMenu !== null} onClose={() => setContextMenu(null)} withinPortal>
+        <Menu.Target>
+          <Box
+            style={{
+              position: 'fixed',
+              left: contextMenu?.x ?? -9999,
+              top: contextMenu?.y ?? -9999,
+              width: 1,
+              height: 1,
+              pointerEvents: 'none'
+            }}
+          />
+        </Menu.Target>
+        <Menu.Dropdown>
+          <Menu.Label>Item actions</Menu.Label>
+          <Menu.Item onClick={() => contextMenu && toggleHiddenPath(contextMenu.path)}>
+            {contextMenu && hiddenPaths.includes(contextMenu.path) ? 'Unhide item' : 'Hide item from view'}
+          </Menu.Item>
+          <Menu.Item onClick={() => setContextMenu(null)}>Cancel</Menu.Item>
+        </Menu.Dropdown>
+      </Menu>
     </AppShell>
   );
 }
 
-function StatCard({ label, value, hint, mono = true }: { label: string; value: string; hint: string; mono?: boolean }) {
-  return (
-    <Paper withBorder p="md" radius="sm">
-      <Stack gap={6}>
-        <Text size="xs" tt="uppercase" fw={700} c="dimmed">{label}</Text>
-        <Text fw={800} fz="xl" ff={mono ? 'monospace' : undefined}>{value}</Text>
-        <Text size="sm" c="dimmed">{hint}</Text>
-      </Stack>
-    </Paper>
-  );
+function findNodeByPath(nodes: ExplorerNode[], targetPath: string | null): ExplorerNode | null {
+  if (!targetPath) {
+    return null;
+  }
+
+  for (const node of nodes) {
+    if (node.path === targetPath) {
+      return node;
+    }
+
+    const childMatch = findNodeByPath(node.children ?? [], targetPath);
+    if (childMatch) {
+      return childMatch;
+    }
+  }
+
+  return null;
+}
+
+function getSunburstParentPath(basePath: string, currentPath: string) {
+  const crumbs = buildBreadcrumbs(currentPath);
+  const parent = crumbs[crumbs.length - 2]?.path;
+
+  if (!parent || parent === basePath) {
+    return null;
+  }
+
+  return parent;
+}
+
+function filterHiddenTree(nodes: ExplorerNode[], hiddenPaths: string[]): ExplorerNode[] {
+  return nodes
+    .filter((node) => !hiddenPaths.includes(node.path))
+    .map((node) => ({
+      ...node,
+      children: node.children ? filterHiddenTree(node.children, hiddenPaths) : undefined
+    }));
+}
+
+function markHiddenChartNodes(node: Record<string, unknown>, hiddenPaths: string[]): Record<string, unknown> {
+  const path = typeof node.path === 'string' ? node.path : '';
+  const children = Array.isArray(node.children)
+    ? node.children.map((child) => markHiddenChartNodes(child as Record<string, unknown>, hiddenPaths))
+    : undefined;
+
+  return {
+    ...node,
+    hidden: hiddenPaths.includes(path),
+    children
+  };
 }
 
 function MetricRow({ label, value }: { label: string; value: string }) {
@@ -483,12 +641,62 @@ function getInitialView(): ViewMode {
   return value === 'sunburst' ? 'sunburst' : 'treemap';
 }
 
-function getInitialSort(): SortMode {
+function getInitialSort(): TableSortMode {
   if (typeof window === 'undefined') return 'sizeDesc';
-  return (new URLSearchParams(window.location.search).get('sort') as SortMode) ?? 'sizeDesc';
+
+  const value = new URLSearchParams(window.location.search).get('sort');
+  return isTableSortMode(value) ? value : 'sizeDesc';
 }
 
 function getInitialQuery(): string {
   if (typeof window === 'undefined') return '';
   return new URLSearchParams(window.location.search).get('query') ?? '';
+}
+
+function isTableSortMode(value: string | null): value is TableSortMode {
+  return value === 'sizeDesc'
+    || value === 'sizeAsc'
+    || value === 'nameAsc'
+    || value === 'nameDesc'
+    || value === 'typeAsc'
+    || value === 'typeDesc';
+}
+
+function toApiSort(sort: TableSortMode): SortMode {
+  if (sort === 'nameAsc' || sort === 'nameDesc') {
+    return 'nameAsc';
+  }
+
+  return 'sizeDesc';
+}
+
+function sortVisibleNodes(nodes: ExplorerNode[], sort: TableSortMode) {
+  const copy = [...nodes];
+
+  switch (sort) {
+    case 'nameAsc':
+      return copy.sort((left, right) => left.name.localeCompare(right.name));
+    case 'nameDesc':
+      return copy.sort((left, right) => right.name.localeCompare(left.name));
+    case 'sizeAsc':
+      return copy.sort((left, right) => left.sizeBytes - right.sizeBytes || left.name.localeCompare(right.name));
+    case 'sizeDesc':
+      return copy.sort((left, right) => right.sizeBytes - left.sizeBytes || left.name.localeCompare(right.name));
+    case 'typeAsc':
+      return copy.sort((left, right) => left.type.localeCompare(right.type) || left.name.localeCompare(right.name));
+    case 'typeDesc':
+      return copy.sort((left, right) => right.type.localeCompare(left.type) || left.name.localeCompare(right.name));
+  }
+}
+
+function nextTableSort(current: TableSortMode, column: 'name' | 'size' | 'type'): TableSortMode {
+  if (column === 'name') {
+    return current === 'nameAsc' ? 'nameDesc' : 'nameAsc';
+  }
+
+  if (column === 'type') {
+    return current === 'typeAsc' ? 'typeDesc' : 'typeAsc';
+  }
+
+  return current === 'sizeDesc' ? 'sizeAsc' : 'sizeDesc';
 }

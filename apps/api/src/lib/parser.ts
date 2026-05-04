@@ -20,7 +20,7 @@ export function parseDucLsOutput(stdout: string, parentPath: string, minSize: nu
     const isDirectory = rawName.endsWith('/');
     const name = rawName.replace(/[\/*@=|]$/, '');
 
-    if (!name || name === '.' || name === '..') {
+    if (!name || name === '.' || name === '..' || name === '-') {
       continue;
     }
 

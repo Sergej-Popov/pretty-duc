@@ -15,6 +15,14 @@ describe('duc parser', () => {
     expect(children[3]?.type).toBe('file');
   });
 
+  test('skips duc aggregate self entries', () => {
+    const children = parseDucLsOutput('8192 -\n4096 var/\n', '/scan/root', null);
+
+    expect(children).toHaveLength(1);
+    expect(children[0]?.name).toBe('var');
+    expect(children[0]?.percentOfParent).toBe(100);
+  });
+
   test('rejects outside root paths', () => {
     expect(() => resolveRequestedPath('/scan/root', '/etc')).toThrow();
   });
