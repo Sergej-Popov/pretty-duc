@@ -3,7 +3,7 @@ import { ActionIcon, Box, useMantineColorScheme, useMantineTheme } from '@mantin
 import ReactECharts from 'echarts-for-react';
 
 export type SunburstHighlightMode = 'ancestor' | 'descendant';
-export type ChartViewMode = 'treemap' | 'sunburst' | 'flame-graph' | 'circle-packing';
+export type ChartViewMode = 'treemap' | 'sunburst' | 'flame-graph' | 'circle-packing' | 'tree' | 'tree-radial';
 export type ChartColorTheme = 'ocean' | 'blue-mono' | 'amber-mono' | 'forest' | 'sunset' | 'aurora' | 'candy' | 'terminal' | 'jewel' | 'volcanic' | 'pastel';
 
 export function ExplorerChart({
@@ -15,7 +15,8 @@ export function ExplorerChart({
   onContextMenu,
   onChartUp,
   canChartGoUp,
-  useDecal
+  useDecal,
+  hideLabels
 }: {
   nodes: Array<Record<string, unknown>>;
   view: ChartViewMode;
@@ -26,15 +27,16 @@ export function ExplorerChart({
   onChartUp: () => void;
   canChartGoUp: boolean;
   useDecal: boolean;
+  hideLabels: boolean;
 }) {
   const theme = useMantineTheme();
   const { colorScheme } = useMantineColorScheme();
   const textColor = colorScheme === 'dark' ? theme.white : theme.black;
   const borderColor = colorScheme === 'dark' ? theme.colors.dark[4] : theme.colors.gray[3];
-  const palette = getChartPalette(colorTheme, theme);
+  const palette = getChartPalette(colorTheme, theme, colorScheme);
   const hiddenColor = colorScheme === 'dark' ? theme.colors.gray[7] : theme.colors.gray[5];
   const circlePackingRootColor = getCirclePackingRootColor(colorTheme, colorScheme, theme);
-  const tintColor = theme.white;
+  const tintColor = colorScheme === 'dark' ? theme.colors.dark[6] : theme.white;
   const decal = useDecal
     ? {
         symbol: 'rect',
@@ -53,6 +55,10 @@ export function ExplorerChart({
     () => toCirclePackingData(styledNodes, palette, circlePackingRootColor, decal),
     [circlePackingRootColor, decal, palette, styledNodes]
   );
+  const chartTotal = useMemo(
+    () => nodes.reduce((sum, node) => sum + (typeof node.value === 'number' ? node.value : 0), 0),
+    [nodes]
+  );
 
   const series = (() => {
     if (view === 'treemap') {
@@ -68,8 +74,8 @@ export function ExplorerChart({
           emphasis: { disabled: false },
           breadcrumb: { show: false },
           visibleMin: 300,
-          label: { show: true, formatter: '{b}', color: textColor, fontSize: 12 },
-          upperLabel: { show: true, height: 28, color: textColor, fontSize: 12 },
+          label: { show: !hideLabels, formatter: '{b}', color: textColor, fontSize: 12 },
+          upperLabel: { show: !hideLabels, height: 28, color: textColor, fontSize: 12 },
           levels: [
             {
               itemStyle: {
@@ -106,17 +112,93 @@ export function ExplorerChart({
           sort: undefined,
           color: palette,
           emphasis: { focus: sunburstHighlightMode },
-          label: { rotate: 'radial', color: textColor },
+          label: { show: !hideLabels, rotate: 'radial', color: textColor },
           ...(decal ? { itemStyle: { decal } } : null),
           data: styledNodes
         };
+    }
+
+    if (view === 'tree') {
+      return {
+        type: 'tree',
+        id: 'storage-map',
+        layout: 'orthogonal',
+        symbol: 'circle',
+        symbolSize: 7,
+        roam: true,
+        expandAndCollapse: true,
+        animationDuration: 550,
+        animationDurationUpdate: 750,
+        universalTransition: true,
+        initialTreeDepth: -1,
+        emphasis: { focus: 'descendant' },
+        top: '1%',
+        left: '7%',
+        bottom: '1%',
+        right: '20%',
+        label: {
+          position: 'left',
+          verticalAlign: 'middle',
+          align: 'right',
+          color: textColor,
+          fontSize: 9,
+          show: !hideLabels
+        },
+        leaves: {
+          label: {
+            position: 'right',
+            verticalAlign: 'middle',
+            align: 'left',
+            color: textColor,
+            fontSize: 9,
+            show: !hideLabels
+          }
+        },
+        ...(decal ? { itemStyle: { decal } } : null),
+        data: collapseLargeTree(styledNodes)
+      };
+    }
+
+    if (view === 'tree-radial') {
+      return {
+        type: 'tree',
+        id: 'storage-map',
+        layout: 'radial',
+        symbol: 'emptyCircle',
+        symbolSize: 7,
+        roam: true,
+        expandAndCollapse: true,
+        animationDuration: 550,
+        animationDurationUpdate: 750,
+        universalTransition: true,
+        initialTreeDepth: 3,
+        emphasis: { focus: 'descendant' },
+        top: '12%',
+        bottom: '12%',
+        left: '12%',
+        right: '12%',
+        label: {
+          color: textColor,
+          fontSize: 9,
+          show: !hideLabels
+        },
+        leaves: {
+          label: {
+            color: textColor,
+            fontSize: 9,
+            show: !hideLabels
+          }
+        },
+        ...(decal ? { itemStyle: { decal } } : null),
+        data: collapseLargeTree(styledNodes)
+      };
     }
 
     if (view === 'flame-graph') {
       return {
         type: 'custom',
         id: 'storage-map',
-        renderItem: (params: unknown, api: any) => renderFlameGraphItem(params, api, decal),
+        renderItem: (params: unknown, api: any) => renderFlameGraphItem(params, api, decal, hideLabels),
         encode: { x: [1, 2], y: 0 },
         data: flameData.items
       };
@@ -126,7 +208,7 @@ export function ExplorerChart({
       type: 'custom',
       id: 'storage-map',
       coordinateSystem: 'none',
-      renderItem: (params: unknown, api: any) => renderCirclePackingItem(params, api, decal),
+      renderItem: (params: unknown, api: any) => renderCirclePackingItem(params, api, decal, hideLabels),
       progressive: 0,
       data: circleData
     };
@@ -141,18 +223,35 @@ export function ExplorerChart({
       borderColor,
       textStyle: { color: textColor },
       extraCssText: 'box-shadow:none;',
-      formatter: (params: { marker?: string; name?: string; value?: unknown; data?: { valueBytes?: unknown } }) => {
+      formatter: (params: { marker?: string; name?: string; value?: unknown; percent?: unknown; data?: { valueBytes?: unknown; total?: unknown } }) => {
+        let name: string;
+        let bytes: number;
+        let percent: number | undefined;
+
         if (view === 'flame-graph' && Array.isArray(params.value)) {
-          const bytes = Number(params.value[2]) - Number(params.value[1]);
-          const percent = Number(params.value[4]);
-          return `${params.marker ?? ''} ${params.value[3]}: ${formatChartBytes(bytes)} (${percent.toFixed(2)}%)`;
+          name = String(params.value[3]);
+          bytes = Number(params.value[2]) - Number(params.value[1]);
+          percent = Number(params.value[4]);
+        } else if (view === 'circle-packing') {
+          name = params.name ?? '';
+          bytes = Number(params.data?.valueBytes ?? 0);
+          const total = Number(params.data?.total ?? 0);
+          if (total > 0) {
+            percent = (bytes / total) * 100;
+          }
+        } else {
+          name = params.name ?? '';
+          bytes = typeof params.value === 'number' ? params.value : 0;
+          if (chartTotal > 0) {
+            percent = (bytes / chartTotal) * 100;
+          }
         }
 
-        if (view === 'circle-packing') {
-          return `${params.marker ?? ''} ${params.name ?? ''}: ${formatChartBytes(Number(params.data?.valueBytes ?? 0))}`;
-        }
+        const marker = params.marker ?? '';
+        const sizeStr = formatChartBytes(bytes);
+        const percentStr = percent !== undefined ? ` (${percent.toFixed(2)}%)` : '';
 
-        return `${params.marker ?? ''} ${params.name ?? ''}`;
+        return `${marker} ${name}: ${sizeStr}${percentStr}`;
       }
     },
     ...(view === 'flame-graph'
@@ -169,7 +268,7 @@ export function ExplorerChart({
     <Box className={`explorer-chart explorer-chart-${view}`} pos="relative">
       <ReactECharts
         className="explorer-chart-echarts"
-        style={{ height: 420, width: '100%' }}
+        style={{ height: 500, width: '100%' }}
         option={option}
         notMerge
         onEvents={{
@@ -221,13 +320,13 @@ function applyChartNodeStyles(
 ): Array<Record<string, unknown>> {
   return nodes.map((node, index) => {
     const hidden = Boolean(node.hidden);
-    const nodeBranchColor = view === 'treemap' && depth === 0
+    const nodeBranchColor = (view === 'treemap' || view === 'tree' || view === 'tree-radial') && depth === 0
       ? options.palette[index % options.palette.length]
       : branchColor;
     const children = Array.isArray(node.children)
       ? applyChartNodeStyles(node.children as Array<Record<string, unknown>>, options, view, depth + 1, nodeBranchColor)
       : undefined;
-    const color = view === 'treemap' && nodeBranchColor
+    const color = (view === 'treemap' || view === 'tree' || view === 'tree-radial') && nodeBranchColor
       ? getTreemapNodeColor(nodeBranchColor, options.tintColor, depth, index)
       : undefined;
     const itemStyle = hidden || options.decal || color
@@ -303,7 +402,7 @@ function appendFlameNode(
   });
 }
 
-function renderFlameGraphItem(_params: unknown, api: any, decal?: Record<string, unknown>) {
+function renderFlameGraphItem(_params: unknown, api: any, decal?: Record<string, unknown>, hideLabels?: boolean) {
   const level = api.value(0);
   const start = api.coord([api.value(1), level]);
   const end = api.coord([api.value(2), level]);
@@ -327,16 +426,18 @@ function renderFlameGraphItem(_params: unknown, api: any, decal?: Record<string,
     style,
     emphasis: { style: { stroke: '#000', lineWidth: 1 } },
     textConfig: { position: 'insideLeft' },
-    textContent: {
-      style: {
-        text: api.value(3),
-        fill: '#111',
-        width: Math.max(0, width - 6),
-        overflow: 'truncate',
-        ellipsis: '..',
-        fontSize: 11
+    ...(!hideLabels ? {
+      textContent: {
+        style: {
+          text: api.value(3),
+          fill: '#111',
+          width: Math.max(0, width - 6),
+          overflow: 'truncate',
+          ellipsis: '..',
+          fontSize: 11
+        }
       }
-    }
+    } : null)
   };
 }
 
@@ -348,6 +449,7 @@ function toCirclePackingData(nodes: Array<Record<string, unknown>>, palette: str
     path: '',
     value: [50, 50, 49, 0, ''],
     valueBytes: total,
+    total,
     itemStyle: {
       color: rootColor,
       borderColor: palette[0] ?? '#228be6',
@@ -361,7 +463,7 @@ function toCirclePackingData(nodes: Array<Record<string, unknown>>, palette: str
 
   roots.forEach((placed, index) => {
     const color = palette[index % palette.length] ?? palette[0] ?? '#228be6';
-    appendCircleNode(placed.node, placed.x, placed.y, placed.radius, 1, color, items, decal);
+    appendCircleNode(placed.node, placed.x, placed.y, placed.radius, 1, color, items, total, decal);
   });
 
   return items;
@@ -375,6 +477,7 @@ function appendCircleNode(
   depth: number,
   color: string,
   items: Array<Record<string, unknown>>,
+  total: number,
   decal?: Record<string, unknown>
 ) {
   const children = getNodeChildren(node);
@@ -385,6 +488,7 @@ function appendCircleNode(
     path: getNodePath(node),
     value: [x, y, radius, depth, getNodeName(node)],
     valueBytes: getNodeValue(node),
+    total,
     itemStyle: { color: nodeColor, ...(decal ? { decal } : null) }
   });
 
@@ -403,6 +507,7 @@ function appendCircleNode(
       depth + 1,
       getTreemapNodeColor(nodeColor, '#ffffff', depth + 1, index),
       items,
+      total,
       decal
     );
   });
@@ -438,7 +543,7 @@ function placeChildCircles(nodes: Array<Record<string, unknown>>, centerX: numbe
   });
 }
 
-function renderCirclePackingItem(_params: unknown, api: any, decal?: Record<string, unknown>) {
+function renderCirclePackingItem(_params: unknown, api: any, decal?: Record<string, unknown>, hideLabels?: boolean) {
   const width = api.getWidth();
   const height = api.getHeight();
   const size = Math.min(width, height);
@@ -463,15 +568,17 @@ function renderCirclePackingItem(_params: unknown, api: any, decal?: Record<stri
     style,
     emphasis: { style: { shadowBlur: 16, shadowColor: 'rgba(0,0,0,0.25)', lineWidth: 2, stroke: '#111' } },
     textConfig: { position: 'inside' },
-    textContent: {
-      style: {
-        text: radius > 14 ? label : '',
-        width: radius * 1.4,
-        overflow: 'truncate',
-        fontSize: Math.max(9, Math.min(14, radius / 3)),
-        fill: '#111'
+    ...(!hideLabels ? {
+      textContent: {
+        style: {
+          text: radius > 14 ? label : '',
+          width: radius * 1.4,
+          overflow: 'truncate',
+          fontSize: Math.max(9, Math.min(14, radius / 3)),
+          fill: '#111'
+        }
       }
-    }
+    } : null)
   };
 }
 
@@ -559,30 +666,50 @@ function toHex(value: number) {
   return value.toString(16).padStart(2, '0');
 }
 
-function getChartPalette(colorTheme: ChartColorTheme, theme: ReturnType<typeof useMantineTheme>) {
+function collapseLargeTree(nodes: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  if (nodes.length <= 6) return nodes;
+  return nodes.map((node, index) => ({
+    ...node,
+    ...(index % 2 === 0 ? { collapsed: true } : {})
+  }));
+}
+
+function getChartPalette(colorTheme: ChartColorTheme, theme: ReturnType<typeof useMantineTheme>, colorScheme: 'light' | 'dark' | 'auto') {
+  let palette: string[];
   switch (colorTheme) {
     case 'blue-mono':
-      return [theme.colors.blue[8], theme.colors.blue[7], theme.colors.blue[6], theme.colors.blue[5], theme.colors.blue[4], theme.colors.cyan[5]];
+      palette = [theme.colors.blue[8], theme.colors.blue[7], theme.colors.blue[6], theme.colors.blue[5], theme.colors.blue[4], theme.colors.cyan[5]];
+      break;
     case 'amber-mono':
-      return [theme.colors.orange[8], theme.colors.orange[7], theme.colors.yellow[7], theme.colors.yellow[6], theme.colors.orange[5], theme.colors.red[5]];
+      palette = [theme.colors.orange[8], theme.colors.orange[7], theme.colors.yellow[7], theme.colors.yellow[6], theme.colors.orange[5], theme.colors.red[5]];
+      break;
     case 'forest':
-      return ['#1B4332', '#2D6A4F', '#40916C', '#52B788', '#74C69D', '#95D5B2', '#B7E4C7'];
+      palette = ['#1B4332', '#2D6A4F', '#40916C', '#52B788', '#74C69D', '#95D5B2', '#B7E4C7'];
+      break;
     case 'sunset':
-      return ['#2B1055', '#571089', '#9A208C', '#E11299', '#FF6D28', '#FCE700', '#FFB84C'];
+      palette = ['#2B1055', '#571089', '#9A208C', '#E11299', '#FF6D28', '#FCE700', '#FFB84C'];
+      break;
     case 'aurora':
-      return ['#172A3A', '#004346', '#09BC8A', '#75DDDD', '#B8F2E6', '#DDFBD2', '#F2F3AE'];
+      palette = ['#172A3A', '#004346', '#09BC8A', '#75DDDD', '#B8F2E6', '#DDFBD2', '#F2F3AE'];
+      break;
     case 'candy':
-      return ['#FF70A6', '#FF9770', '#FFD670', '#E9FF70', '#70D6FF', '#B388EB', '#F7A8B8'];
+      palette = ['#FF70A6', '#FF9770', '#FFD670', '#E9FF70', '#70D6FF', '#B388EB', '#F7A8B8'];
+      break;
     case 'terminal':
-      return ['#0B3D20', '#116530', '#21A179', '#00D084', '#7CFF6B', '#C6FF00', '#E8FFB7'];
+      palette = ['#0B3D20', '#116530', '#21A179', '#00D084', '#7CFF6B', '#C6FF00', '#E8FFB7'];
+      break;
     case 'jewel':
-      return ['#0B132B', '#3A0CA3', '#4361EE', '#4CC9F0', '#2EC4B6', '#FF9F1C', '#E71D36'];
+      palette = ['#0B132B', '#3A0CA3', '#4361EE', '#4CC9F0', '#2EC4B6', '#FF9F1C', '#E71D36'];
+      break;
     case 'volcanic':
-      return ['#140F0F', '#4A0F0F', '#8A1C0F', '#C73E1D', '#FF6B35', '#FFB627', '#FFE66D'];
+      palette = ['#140F0F', '#4A0F0F', '#8A1C0F', '#C73E1D', '#FF6B35', '#FFB627', '#FFE66D'];
+      break;
     case 'pastel':
-      return ['#A0C4FF', '#BDB2FF', '#FFC6FF', '#FFADAD', '#FFD6A5', '#FDFFB6', '#CAFFBF', '#9BF6FF'];
+      palette = ['#A0C4FF', '#BDB2FF', '#FFC6FF', '#FFADAD', '#FFD6A5', '#FDFFB6', '#CAFFBF', '#9BF6FF'];
+      break;
     case 'ocean':
-      return [
+    default:
+      palette = [
         theme.colors.blue[6],
         theme.colors.blue[4],
         theme.colors.cyan[6],
@@ -598,7 +725,14 @@ function getChartPalette(colorTheme: ChartColorTheme, theme: ReturnType<typeof u
         theme.colors.lime[5],
         theme.colors.orange[5]
       ];
+      break;
   }
+
+  if (colorScheme === 'dark') {
+    return palette.map((color) => mixHexColors(color, theme.colors.dark[7], 0.25));
+  }
+
+  return palette;
 }
 
 function getCirclePackingRootColor(colorTheme: ChartColorTheme, colorScheme: 'light' | 'dark' | 'auto', theme: ReturnType<typeof useMantineTheme>) {

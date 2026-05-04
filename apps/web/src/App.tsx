@@ -55,18 +55,72 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
-  const [hiddenPaths, setHiddenPaths] = useState<string[]>([]);
+  const [hiddenPaths, setHiddenPaths] = useState<string[]>(getInitialHiddenPaths);
   const [showHiddenItems, setShowHiddenItems] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('showHiddenItems') === 'true' : false);
   const [sunburstRootPath, setSunburstRootPath] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ path: string; x: number; y: number } | null>(null);
   const [useDecal, setUseDecal] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('useDecal') === 'true' : false);
+  const [showLabels, setShowLabels] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('showLabels') !== 'false' : true);
   const [sunburstHighlightMode, setSunburstHighlightMode] = useState<SunburstHighlightMode>(() => {
     if (typeof window === 'undefined') return 'ancestor';
     return (localStorage.getItem('sunburstHighlightMode') as SunburstHighlightMode) || 'ancestor';
-});
-const [selectedIndex, setSelectedIndex] = useState(0);
+  });
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const { colorScheme, setColorScheme } = useMantineColorScheme();
+
+  const suggestionsRef = useRef<string[]>([]);
+  const queryRef = useRef('');
+  queryRef.current = query;
+
+  const selectedIndexRef = useRef(selectedIndex);
+  selectedIndexRef.current = selectedIndex;
+
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+
+    function onNativeKeyDown(e: globalThis.KeyboardEvent) {
+      if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && suggestionsRef.current.length > 0) {
+        e.preventDefault();
+        setSelectedIndex((i) =>
+          e.key === 'ArrowDown'
+            ? Math.min(i + 1, suggestionsRef.current.length - 1)
+            : Math.max(i - 1, 0)
+        );
+      }
+      if (e.key === 'Enter' && suggestionsRef.current.length > 0) {
+        e.preventDefault();
+        const idx = selectedIndexRef.current;
+        const selected = suggestionsRef.current[Math.min(idx, suggestionsRef.current.length - 1)]!;
+        const cleanName = selected.endsWith('/') ? selected.slice(0, -1) : selected;
+        const found = findNodeByNameInLevel(data?.children ?? [], queryRef.current, cleanName);
+        if (found) {
+          setQuery('');
+          setSelectedIndex(0);
+          setDropdownOpen(false);
+          if (found.type === 'directory') {
+            navigate(found.path);
+          } else {
+            selectByPath(found.path);
+          }
+          return;
+        }
+        setQuery(selected);
+        setSelectedIndex(0);
+        setDropdownOpen(true);
+      }
+      if (e.key === 'Escape') {
+        setSelectedIndex(0);
+        setDropdownOpen(false);
+        inputRef.current?.blur();
+      }
+    }
+
+    el.addEventListener('keydown', onNativeKeyDown, { capture: true });
+    return () => el.removeEventListener('keydown', onNativeKeyDown, { capture: true });
+  }, [navigate, selectByPath]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -106,6 +160,14 @@ const [selectedIndex, setSelectedIndex] = useState(0);
   useEffect(() => {
     localStorage.setItem('useDecal', String(useDecal));
   }, [useDecal]);
+
+  useEffect(() => {
+    localStorage.setItem('showLabels', String(showLabels));
+  }, [showLabels]);
+
+  useEffect(() => {
+    localStorage.setItem('hiddenPaths', JSON.stringify(hiddenPaths));
+  }, [hiddenPaths]);
 
   useEffect(() => {
     localStorage.setItem('sunburstHighlightMode', sunburstHighlightMode);
@@ -152,7 +214,8 @@ const [selectedIndex, setSelectedIndex] = useState(0);
   }, [depth, path, sort]);
 
   const visibleNodes = useMemo(() => {
-    const filtered = filterNodes(data?.children ?? [], query);
+    const effectiveQuery = query.includes('/') ? '' : query;
+    const filtered = filterNodes(data?.children ?? [], effectiveQuery);
     const withVisibility = showHiddenItems ? filtered : filtered.filter((node) => !hiddenPaths.includes(node.path));
     return sortVisibleNodes(withVisibility, sort);
   }, [data?.children, query, sort, hiddenPaths, showHiddenItems]);
@@ -178,6 +241,7 @@ const [selectedIndex, setSelectedIndex] = useState(0);
   }, [chartSourceNodes, hiddenPaths, sunburstRootNode, view]);
 
   const suggestions = useMemo(() => getAutocompleteSuggestions(data?.children ?? [], query), [data?.children, query]);
+  suggestionsRef.current = suggestions;
 
   useEffect(() => {
     if (sunburstRootPath && !findNodeByPath(chartSourceNodes, sunburstRootPath)) {
@@ -355,7 +419,9 @@ const [selectedIndex, setSelectedIndex] = useState(0);
                     { label: 'Treemap', value: 'treemap' },
                     { label: 'Sunburst', value: 'sunburst' },
                     { label: 'Flame graph', value: 'flame-graph' },
-                    { label: 'Circle packing', value: 'circle-packing' }
+                    { label: 'Circle packing', value: 'circle-packing' },
+                    { label: 'Tree', value: 'tree' },
+                    { label: 'Radial tree', value: 'tree-radial' }
                   ]}
                 />
                 <Select
@@ -386,43 +452,20 @@ const [selectedIndex, setSelectedIndex] = useState(0);
                     radius="sm"
                     placeholder="Filter"
                     value={query}
+                    onFocus={() => {
+                      setDropdownOpen(true);
+                    }}
                     onChange={(event) => {
                       setQuery(event.currentTarget.value);
                       setSelectedIndex(0);
-                      if (suggestions.length > 0 && !inputRef.current?.getAttribute('data-dropdown-open')) {
-                        inputRef.current?.focus();
-                      }
+                      setDropdownOpen(true);
                     }}
-                    onFocus={() => {
-                      if (suggestions.length > 0) {
-                        inputRef.current?.focus();
-                      }
-                    }}
-                    onKeyDown={(event) => {
-                      event.stopPropagation();
-                      event.nativeEvent.stopImmediatePropagation();
-                      if (event.key === 'ArrowDown') {
-                        event.preventDefault();
-                        if (suggestions.length > 0) {
-                          setSelectedIndex((i) => Math.min(i + 1, suggestions.length - 1));
-                        }
-                      }
-                      if (event.key === 'ArrowUp') {
-                        event.preventDefault();
-                        setSelectedIndex((i) => Math.max(i - 1, 0));
-                      }
-                      if (event.key === 'Enter' && suggestions.length > 0) {
-                        event.preventDefault();
-                        const idx = selectedIndex;
-                        const selected = suggestions[idx] ?? suggestions[0];
-                        setQuery(selected);
-                      }
-                      if (event.key === 'Escape') {
-                        setSelectedIndex(0);
-                      }
+                    onKeyDown={() => {}}
+                    onBlur={() => {
+                      setTimeout(() => setDropdownOpen(false), 150);
                     }}
                   />
-                  {suggestions.length > 0 && (
+                  {dropdownOpen && suggestions.length > 0 && (
                     <Box
                       className="directory-filter-dropdown"
                       style={{
@@ -443,9 +486,23 @@ const [selectedIndex, setSelectedIndex] = useState(0);
                         <Box
                           key={suggestion}
                           className="directory-filter-suggestion"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                          }}
                           onClick={() => {
-                            setQuery(suggestion);
+                            const cleanName = suggestion.endsWith('/') ? suggestion.slice(0, -1) : suggestion;
+                            const found = findNodeByNameInLevel(data?.children ?? [], query, cleanName);
+                            setQuery('');
+                            setSelectedIndex(0);
                             setDropdownOpen(false);
+                            if (found?.type === 'directory') {
+                              navigate(found.path);
+                            } else if (found) {
+                              selectByPath(found.path);
+                            } else {
+                              setQuery(suggestion);
+                              setDropdownOpen(true);
+                            }
                           }}
                           style={{
                             padding: '8px 12px',
@@ -514,6 +571,12 @@ const [selectedIndex, setSelectedIndex] = useState(0);
                   checked={useDecal}
                   onChange={(event) => setUseDecal(event.currentTarget.checked)}
                   label="Enable decal pattern"
+                />
+                <Switch
+                  className="hide-labels-switch"
+                  checked={showLabels}
+                  onChange={(event) => setShowLabels(event.currentTarget.checked)}
+                  label="Show labels"
                 />
                 {view === 'sunburst' ? (
                   <Switch
@@ -587,15 +650,9 @@ const [selectedIndex, setSelectedIndex] = useState(0);
           ) : (
             <Grid className="explorer-grid" gutter="lg" align="stretch">
               <Grid.Col className="chart-column" span={{ base: 12, xl: 8 }}>
-                <Paper className="chart-panel" withBorder p="md" radius="sm" h="100%">
-                  <Stack className="chart-panel-content" gap="md" h="100%">
-                    <Group className="chart-panel-header" justify="space-between">
-                      <Box className="chart-title-block">
-                        <Text className="chart-title" fw={700}>{getViewLabel(view)}</Text>
-                      </Box>
-                    </Group>
-                    <Box className="chart-stage" style={{ minHeight: 460 }}>
-                      <ExplorerChart
+                <Paper className="chart-panel" withBorder p="xs" radius="sm" h="100%">
+                  <Box className="chart-stage">
+                    <ExplorerChart
                         nodes={chartNodes}
                         view={view}
                         colorTheme={chartColorTheme}
@@ -605,9 +662,9 @@ const [selectedIndex, setSelectedIndex] = useState(0);
                         onChartUp={moveSunburstUp}
                         canChartGoUp={view === 'sunburst' && sunburstRootPath !== null}
                         useDecal={useDecal}
+                        hideLabels={!showLabels}
                       />
-                    </Box>
-                  </Stack>
+                  </Box>
                 </Paper>
               </Grid.Col>
 
@@ -755,6 +812,21 @@ const [selectedIndex, setSelectedIndex] = useState(0);
   );
 }
 
+function findNodeByNameInLevel(nodes: ExplorerNode[], query: string, name: string): ExplorerNode | null {
+  const lastSlash = query.lastIndexOf('/');
+
+  if (lastSlash >= 0) {
+    const prefix = query.slice(0, lastSlash + 1);
+    const dirName = prefix.slice(0, -1);
+    const allNodes = buildFlatNodeList(nodes);
+    const parentNode = allNodes.find((n) => n.name === dirName && n.type === 'directory');
+    if (!parentNode?.children) return null;
+    return parentNode.children.find((n) => n.name === name) ?? null;
+  }
+
+  return nodes.find((n) => n.name === name) ?? null;
+}
+
 function findNodeByPath(nodes: ExplorerNode[], targetPath: string | null): ExplorerNode | null {
   if (!targetPath) {
     return null;
@@ -831,6 +903,18 @@ function getInitialView(): ViewMode {
   return toViewMode(localStorage.getItem('view'));
 }
 
+function getInitialHiddenPaths(): string[] {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+  try {
+    const raw = localStorage.getItem('hiddenPaths');
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
 function getInitialChartColorTheme(): ChartColorTheme {
   if (typeof window === 'undefined') {
     return 'ocean';
@@ -839,7 +923,7 @@ function getInitialChartColorTheme(): ChartColorTheme {
 }
 
 function toViewMode(value: string | null): ViewMode {
-  if (value === 'sunburst' || value === 'flame-graph' || value === 'circle-packing') {
+  if (value === 'sunburst' || value === 'flame-graph' || value === 'circle-packing' || value === 'tree' || value === 'tree-radial') {
     return value;
   }
 
@@ -861,19 +945,6 @@ function toChartColorTheme(value: string | null): ChartColorTheme {
   }
 
   return 'ocean';
-}
-
-function getViewLabel(view: ViewMode) {
-  switch (view) {
-    case 'sunburst':
-      return 'Sunburst';
-    case 'flame-graph':
-      return 'Flame graph';
-    case 'circle-packing':
-      return 'Circle packing';
-    case 'treemap':
-      return 'Treemap';
-  }
 }
 
 function getInitialSort(): TableSortMode {
@@ -924,25 +995,40 @@ function buildFlatNodeList(nodes: ExplorerNode[], acc: ExplorerNode[] = []): Exp
 }
 
 function getAutocompleteSuggestions(nodes: ExplorerNode[], q: string): string[] {
-  if (!q) return [];
+  const unique = new Map<string, string>();
+
+  if (!q) {
+    for (const node of nodes) {
+      unique.set(node.name, node.name + (node.type === 'directory' ? '/' : ''));
+    }
+    return Array.from(unique.values()).sort().slice(0, 20);
+  }
+
   const lastSlash = q.lastIndexOf('/');
   const searchTerm = lastSlash >= 0 ? q.slice(lastSlash + 1).toLowerCase() : q.toLowerCase();
   const prefix = lastSlash >= 0 ? q.slice(0, lastSlash + 1) : '';
 
   if (prefix) {
     const dirName = prefix.slice(0, -1);
-    const parentNode = nodes.find((n) => n.name === dirName && n.type === 'directory');
-    if (!parentNode || !parentNode.children) return [];
-    const unique = new Map<string, string>();
+    const allNodes = buildFlatNodeList(nodes);
+    const parentNode = allNodes.find((n) => n.name === dirName && n.type === 'directory');
+    if (!parentNode || !parentNode.children) {
+      if (!searchTerm) return [];
+      for (const node of nodes) {
+        if (node.name.toLowerCase().includes(q.toLowerCase())) {
+          unique.set(node.name, node.name + (node.type === 'directory' ? '/' : ''));
+        }
+      }
+      return Array.from(unique.values()).sort().slice(0, 20);
+    }
     for (const child of parentNode.children) {
-      if (child.name.toLowerCase().includes(searchTerm)) {
-        unique.set(child.name, prefix + child.name);
+      if (!searchTerm || child.name.toLowerCase().includes(searchTerm)) {
+        unique.set(child.name, prefix + child.name + (child.type === 'directory' ? '/' : ''));
       }
     }
     return Array.from(unique.values()).sort().slice(0, 20);
   }
 
-  const unique = new Map<string, string>();
   for (const node of nodes) {
     if (node.name.toLowerCase().includes(searchTerm)) {
       unique.set(node.name, node.name + (node.type === 'directory' ? '/' : ''));

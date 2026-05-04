@@ -2,11 +2,6 @@
 
 This file serves as the canonical context and rulebook for AI agents working on Pretty Duc. The MVP has been shipped, and original planning briefs have been consolidated here.
 
-## TODO
-* add option to hide labels on chart
-* improve label tooltips, currently not the same across charts. use tooltips from flame graph
-* remove chart-title-block and make treemap chart a bit bigger, currently has too much padding
-* add new charts. Tree (https://echarts.apache.org/examples/en/editor.html?c=tree-basic) and Radial Tree (https://echarts.apache.org/examples/en/editor.html?c=tree-radial)
 
 ## Project Context
 Pretty Duc is a modern web UI and API for `duc`. It runs as a separate Docker service alongside a Duc scanner. It reads the shared Duc database read-only and uses the `duc` CLI. 

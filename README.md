@@ -1,7 +1,11 @@
 # Pretty Duc
 
 AI disclaimer: This project is created completely with AI.  
-OpenCode + GPT5.4; Gemini CLI + 3.1 pro;  
+Tools used:
+* OpenCode + GPT5.4;
+* Gemini CLI + 3.1 pro;  
+* Ollama + Minimax M2.7
+* OpenCode Go + DeepSee V4 Pro
 
 Pretty Duc is a modern web UI and JSON API for browsing [Duc](https://github.com/zevv/duc) disk usage data. It runs as a separate Docker service, reads a shared Duc database volume, and uses the `duc` CLI as its only integration layer.
 
