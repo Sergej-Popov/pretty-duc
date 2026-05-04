@@ -25,6 +25,9 @@ export function createExecutor(config: AppConfig, maxConcurrency: number): DucEx
 
   return async (args, timeoutMs) => {
     return withLimit(semaphore, async () => {
+      const cmdLabel = args.length >= 2 ? `${args[0]} ${args[1]}` : args[0];
+      console.info(`[duc] executing: ${config.ducBin} ${args.join(' ')} (timeout=${timeoutMs}ms)`);
+
       const proc = Bun.spawn([config.ducBin, ...args], {
         stdout: 'pipe',
         stderr: 'pipe'
@@ -47,6 +50,9 @@ export function createExecutor(config: AppConfig, maxConcurrency: number): DucEx
       stderr = stderrText;
 
       if (exitCode !== 0) {
+        const stderrPreview = stderr.trim().slice(0, 500);
+        console.error(`[duc] command failed: ${cmdLabel} exitCode=${exitCode} stderr=${stderrPreview}`);
+
         if (stderr.toLowerCase().includes('not found') || stderr.toLowerCase().includes('no such file')) {
           throw new ApiError(404, 'PATH_NOT_INDEXED', stderr.trim() || 'Path was not found in Duc index');
         }
@@ -54,6 +60,7 @@ export function createExecutor(config: AppConfig, maxConcurrency: number): DucEx
         throw new ApiError(502, 'DUC_COMMAND_FAILED', stderr.trim() || 'Duc command failed', { args, exitCode });
       }
 
+      console.info(`[duc] completed: ${cmdLabel} (${stdout.split('\n').filter(Boolean).length} lines)`);
       return { stdout, stderr };
     });
   };
@@ -77,6 +84,7 @@ export async function getChildrenTree(options: {
 
   async function walk(currentPath: string, remainingLevels: number): Promise<ExplorerNode[]> {
     if (Date.now() - startedAt > options.config.limits.recursiveBudgetMs) {
+      console.error(`[walk] timeout at ${currentPath} (${Date.now() - startedAt}ms > ${options.config.limits.recursiveBudgetMs}ms) nodeCount=${nodeCount}`);
       throw new ApiError(504, 'DUC_TIMEOUT', 'Recursive request exceeded configured time budget');
     }
 
@@ -84,6 +92,7 @@ export async function getChildrenTree(options: {
 
     const result = await withLimit(localSemaphore, () => {
       if (Date.now() - startedAt > options.config.limits.recursiveBudgetMs) {
+        console.error(`[walk] timeout in semaphore wait at ${currentPath} (${Date.now() - startedAt}ms) nodeCount=${nodeCount}`);
         throw new ApiError(504, 'DUC_TIMEOUT', 'Recursive request exceeded configured time budget');
       }
 
@@ -93,8 +102,7 @@ export async function getChildrenTree(options: {
     try {
       children = parseDucLsOutput(result.stdout, currentPath, options.minSize);
     } catch (e) {
-      // If parsing fails, return empty children for this node instead of crashing
-      console.error(`Failed to parse duc ls output for ${currentPath}:`, e);
+      console.error(`[walk] failed to parse duc ls output for ${currentPath}: nodeCount=${nodeCount} remainingLevels=${remainingLevels}`, e);
       return [];
     }
 
@@ -105,6 +113,7 @@ export async function getChildrenTree(options: {
     }
 
     if (children.length > options.maxChildrenPerDirectory) {
+      console.warn(`[walk] truncated directory ${currentPath}: ${children.length} children exceeded maxChildrenPerDirectory=${options.maxChildrenPerDirectory}`);
       children = children.slice(0, options.maxChildrenPerDirectory);
       truncated = true;
     }
@@ -112,6 +121,9 @@ export async function getChildrenTree(options: {
     const childrenPromises = children.map(async (child) => {
       nodeCount += 1;
       if (nodeCount >= options.maxNodes) {
+        if (!truncated) {
+          console.warn(`[walk] hit maxNodes cap at ${currentPath}/${child.name}: nodeCount=${nodeCount} maxNodes=${options.maxNodes} remainingLevels=${remainingLevels}`);
+        }
         truncated = true;
         return child;
       }
@@ -128,6 +140,8 @@ export async function getChildrenTree(options: {
 
   const children = await walk(options.path, options.levels);
   const totalSizeBytes = children.reduce((sum, child) => sum + child.sizeBytes, 0);
+  const elapsed = Date.now() - startedAt;
+  console.info(`[walk] completed: path=${options.path} levels=${options.levels} nodeCount=${nodeCount} truncated=${truncated} totalSizeBytes=${totalSizeBytes} elapsedMs=${elapsed}`);
   return { children, truncated, totalSizeBytes, nodeCount };
 }
 
@@ -142,6 +156,7 @@ export async function getTreeJson(options: {
   const result = await options.executor(args, options.config.limits.ducTimeoutMs);
   
   if (!result.stdout.trim()) {
+    console.warn(`[tree] empty output for path=${options.path} levels=${options.levels}`);
     return { children: [], truncated: false, totalSizeBytes: 0, nodeCount: 0 };
   }
 
@@ -149,6 +164,7 @@ export async function getTreeJson(options: {
   try {
     rawJson = JSON.parse(result.stdout);
   } catch (e) {
+    console.error(`[tree] failed to parse JSON for path=${options.path} levels=${options.levels}: stdout length=${result.stdout.length}`);
     throw new ApiError(502, 'DUC_INVALID_JSON', 'Failed to parse JSON from Duc output');
   }
   

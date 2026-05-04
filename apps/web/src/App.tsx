@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import {
   ActionIcon,
   AppShell,
@@ -56,28 +56,24 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [hiddenPaths, setHiddenPaths] = useState<string[]>([]);
-  const [showHiddenItems, setShowHiddenItems] = useState(false);
+  const [showHiddenItems, setShowHiddenItems] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('showHiddenItems') === 'true' : false);
   const [sunburstRootPath, setSunburstRootPath] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ path: string; x: number; y: number } | null>(null);
-  const [useDecal, setUseDecal] = useState(false);
-  const [sunburstHighlightMode, setSunburstHighlightMode] = useState<SunburstHighlightMode>('ancestor');
+  const [useDecal, setUseDecal] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('useDecal') === 'true' : false);
+  const [sunburstHighlightMode, setSunburstHighlightMode] = useState<SunburstHighlightMode>(() => {
+    if (typeof window === 'undefined') return 'ancestor';
+    return (localStorage.getItem('sunburstHighlightMode') as SunburstHighlightMode) || 'ancestor';
+});
+const [selectedIndex, setSelectedIndex] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
   const { colorScheme, setColorScheme } = useMantineColorScheme();
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
     params.set('path', path);
-    params.set('view', view);
-    params.set('sort', sort);
-    params.set('colors', chartColorTheme);
-    params.set('depth', String(depth));
-    if (query) {
-      params.set('query', query);
-    } else {
-      params.delete('query');
-    }
     window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
-  }, [chartColorTheme, depth, path, view, sort, query]);
+  }, [path]);
 
   useEffect(() => {
     setActiveIndex(0);
@@ -86,6 +82,34 @@ export function App() {
   useEffect(() => {
     setSunburstRootPath(null);
   }, [path]);
+
+  useEffect(() => {
+    localStorage.setItem('view', view);
+  }, [view]);
+
+  useEffect(() => {
+    localStorage.setItem('chartColorTheme', chartColorTheme);
+  }, [chartColorTheme]);
+
+  useEffect(() => {
+    localStorage.setItem('sort', sort);
+  }, [sort]);
+
+  useEffect(() => {
+    localStorage.setItem('depth', String(depth));
+  }, [depth]);
+
+  useEffect(() => {
+    localStorage.setItem('showHiddenItems', String(showHiddenItems));
+  }, [showHiddenItems]);
+
+  useEffect(() => {
+    localStorage.setItem('useDecal', String(useDecal));
+  }, [useDecal]);
+
+  useEffect(() => {
+    localStorage.setItem('sunburstHighlightMode', sunburstHighlightMode);
+  }, [sunburstHighlightMode]);
 
   useEffect(() => {
     fetchHealth()
@@ -153,6 +177,8 @@ export function App() {
     return toChartTree(chartSourceNodes).map((node) => markHiddenChartNodes(node, hiddenPaths));
   }, [chartSourceNodes, hiddenPaths, sunburstRootNode, view]);
 
+  const suggestions = useMemo(() => getAutocompleteSuggestions(data?.children ?? [], query), [data?.children, query]);
+
   useEffect(() => {
     if (sunburstRootPath && !findNodeByPath(chartSourceNodes, sunburstRootPath)) {
       setSunburstRootPath(null);
@@ -169,6 +195,10 @@ export function App() {
   }, [visibleNodes]);
 
   function navigate(nextPath: string) {
+    if (nextPath !== rootPath && !nextPath.startsWith(rootPath + '/')) {
+      notifications.show({ message: 'Cannot navigate above root directory', color: 'yellow' });
+      return;
+    }
     setPath(nextPath);
     setActiveIndex(0);
   }
@@ -176,7 +206,14 @@ export function App() {
   function navigateUp() {
     const crumbs = buildBreadcrumbs(path);
     if (crumbs.length > 1) {
-      navigate(crumbs[crumbs.length - 2]!.path);
+      const parentPath = crumbs[crumbs.length - 2]!.path;
+      if (parentPath !== rootPath && !parentPath.startsWith(rootPath + '/')) {
+        notifications.show({ message: 'Cannot navigate above root directory', color: 'yellow' });
+      } else {
+        navigate(parentPath);
+      }
+    } else {
+      notifications.show({ message: 'Already at root directory', color: 'yellow' });
     }
   }
 
@@ -342,13 +379,90 @@ export function App() {
                     { label: 'Pastel prism', value: 'pastel' }
                   ]}
                 />
-                <TextInput
-                  className="directory-filter-input"
-                  radius="sm"
-                  value={query}
-                  onChange={(event) => setQuery(event.currentTarget.value)}
-                  placeholder="Filter current directory"
-                />
+                <Box className="directory-filter-wrapper" style={{ position: 'relative' }}>
+                  <TextInput
+                    ref={inputRef}
+                    className="directory-filter-input"
+                    radius="sm"
+                    placeholder="Filter"
+                    value={query}
+                    onChange={(event) => {
+                      setQuery(event.currentTarget.value);
+                      setSelectedIndex(0);
+                      if (suggestions.length > 0 && !inputRef.current?.getAttribute('data-dropdown-open')) {
+                        inputRef.current?.focus();
+                      }
+                    }}
+                    onFocus={() => {
+                      if (suggestions.length > 0) {
+                        inputRef.current?.focus();
+                      }
+                    }}
+                    onKeyDown={(event) => {
+                      event.stopPropagation();
+                      event.nativeEvent.stopImmediatePropagation();
+                      if (event.key === 'ArrowDown') {
+                        event.preventDefault();
+                        if (suggestions.length > 0) {
+                          setSelectedIndex((i) => Math.min(i + 1, suggestions.length - 1));
+                        }
+                      }
+                      if (event.key === 'ArrowUp') {
+                        event.preventDefault();
+                        setSelectedIndex((i) => Math.max(i - 1, 0));
+                      }
+                      if (event.key === 'Enter' && suggestions.length > 0) {
+                        event.preventDefault();
+                        const idx = selectedIndex;
+                        const selected = suggestions[idx] ?? suggestions[0];
+                        setQuery(selected);
+                      }
+                      if (event.key === 'Escape') {
+                        setSelectedIndex(0);
+                      }
+                    }}
+                  />
+                  {suggestions.length > 0 && (
+                    <Box
+                      className="directory-filter-dropdown"
+                      style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: 0,
+                        right: 0,
+                        zIndex: 1000,
+                        backgroundColor: 'var(--mantine-color-body)',
+                        border: '1px solid var(--mantine-color-dimmed-border)',
+                        borderRadius: 'var(--mantine-radius-sm)',
+                        maxHeight: '200px',
+                        overflowY: 'auto',
+                        boxShadow: 'var(--mantine-shadow-md)'
+                      }}
+                    >
+                      {suggestions.map((suggestion, index) => (
+                        <Box
+                          key={suggestion}
+                          className="directory-filter-suggestion"
+                          onClick={() => {
+                            setQuery(suggestion);
+                            setDropdownOpen(false);
+                          }}
+                          style={{
+                            padding: '8px 12px',
+                            cursor: 'pointer',
+                            borderBottom: '1px solid var(--mantine-color-dimmed-border)',
+                            backgroundColor: index === selectedIndex ? 'var(--mantine-color-dimmed-bg)' : 'transparent'
+                          }}
+                          onMouseEnter={(e) => {
+                            setSelectedIndex(index);
+                          }}
+                        >
+                          {suggestion}
+                        </Box>
+                      ))}
+                    </Box>
+                  )}
+                </Box>
                 <Box className="graph-depth-control" mb="md">
                   <Group className="graph-depth-header" justify="space-between" mb={6}>
                     <Text className="graph-depth-label" size="sm" fw={500}>Graph depth</Text>
@@ -436,8 +550,21 @@ export function App() {
               </Group>
 
               <Breadcrumbs className="path-breadcrumbs" separator="/">
-                {breadcrumbs.map((crumb) => (
-                  <Button className="breadcrumb-button" key={crumb.path} variant="subtle" size="compact-sm" onClick={() => navigate(crumb.path)}>
+                {breadcrumbs.filter((crumb) => crumb.path !== '/').map((crumb) => (
+                  <Button
+                    className="breadcrumb-button"
+                    key={crumb.path}
+                    variant="subtle"
+                    size="compact-sm"
+                    disabled={crumb.path !== rootPath && !crumb.path.startsWith(rootPath + '/')}
+                    onClick={() => {
+                      if (crumb.path !== rootPath && !crumb.path.startsWith(rootPath + '/')) {
+                        notifications.show({ message: 'Cannot navigate above root directory', color: 'yellow' });
+                      } else {
+                        navigate(crumb.path);
+                      }
+                    }}
+                  >
                     {crumb.label}
                   </Button>
                 ))}
@@ -701,17 +828,14 @@ function getInitialView(): ViewMode {
   if (typeof window === 'undefined') {
     return 'treemap';
   }
-
-  const value = new URLSearchParams(window.location.search).get('view');
-  return toViewMode(value);
+  return toViewMode(localStorage.getItem('view'));
 }
 
 function getInitialChartColorTheme(): ChartColorTheme {
   if (typeof window === 'undefined') {
     return 'ocean';
   }
-
-  return toChartColorTheme(new URLSearchParams(window.location.search).get('colors'));
+  return toChartColorTheme(localStorage.getItem('chartColorTheme'));
 }
 
 function toViewMode(value: string | null): ViewMode {
@@ -754,25 +878,22 @@ function getViewLabel(view: ViewMode) {
 
 function getInitialSort(): TableSortMode {
   if (typeof window === 'undefined') return 'sizeDesc';
-
-  const value = new URLSearchParams(window.location.search).get('sort');
-  return isTableSortMode(value) ? value : 'sizeDesc';
+  return isTableSortMode(localStorage.getItem('sort')) ? localStorage.getItem('sort') as TableSortMode : 'sizeDesc';
 }
 
 function getInitialDepth() {
   if (typeof window === 'undefined') return 4;
-
-  return toDepth(new URLSearchParams(window.location.search).get('depth'));
+  return toDepth(localStorage.getItem('depth'));
 }
 
 function toDepth(value: string | null) {
-  const parsed = value ? Number.parseInt(value, 10) : 4;
+  if (!value) return 4;
+  const parsed = Number.parseInt(value, 10);
   return parsed >= 1 && parsed <= 6 ? parsed : 4;
 }
 
 function getInitialQuery(): string {
-  if (typeof window === 'undefined') return '';
-  return new URLSearchParams(window.location.search).get('query') ?? '';
+  return '';
 }
 
 function isTableSortMode(value: string | null): value is TableSortMode {
@@ -790,6 +911,44 @@ function toApiSort(sort: TableSortMode): SortMode {
   }
 
   return 'sizeDesc';
+}
+
+function buildFlatNodeList(nodes: ExplorerNode[], acc: ExplorerNode[] = []): ExplorerNode[] {
+  for (const node of nodes) {
+    acc.push(node);
+    if (node.children) {
+      buildFlatNodeList(node.children, acc);
+    }
+  }
+  return acc;
+}
+
+function getAutocompleteSuggestions(nodes: ExplorerNode[], q: string): string[] {
+  if (!q) return [];
+  const lastSlash = q.lastIndexOf('/');
+  const searchTerm = lastSlash >= 0 ? q.slice(lastSlash + 1).toLowerCase() : q.toLowerCase();
+  const prefix = lastSlash >= 0 ? q.slice(0, lastSlash + 1) : '';
+
+  if (prefix) {
+    const dirName = prefix.slice(0, -1);
+    const parentNode = nodes.find((n) => n.name === dirName && n.type === 'directory');
+    if (!parentNode || !parentNode.children) return [];
+    const unique = new Map<string, string>();
+    for (const child of parentNode.children) {
+      if (child.name.toLowerCase().includes(searchTerm)) {
+        unique.set(child.name, prefix + child.name);
+      }
+    }
+    return Array.from(unique.values()).sort().slice(0, 20);
+  }
+
+  const unique = new Map<string, string>();
+  for (const node of nodes) {
+    if (node.name.toLowerCase().includes(searchTerm)) {
+      unique.set(node.name, node.name + (node.type === 'directory' ? '/' : ''));
+    }
+  }
+  return Array.from(unique.values()).sort().slice(0, 20);
 }
 
 function sortVisibleNodes(nodes: ExplorerNode[], sort: TableSortMode) {

@@ -74,13 +74,14 @@ function parseHumanishSize(value: string, unit: string): number {
 }
 
 export function assertReasonablePayload(nodeCount: number, maxBytes: number) {
-  // Estimate ~200 bytes per node (conservative estimate based on ExplorerNode schema)
   const estimatedBytes = nodeCount * 200;
   if (estimatedBytes > maxBytes) {
+    console.error(`[payload] budget exceeded: nodeCount=${nodeCount} estimatedBytes=${estimatedBytes} maxBytes=${maxBytes} (threshold=${Math.floor(maxBytes / 200)} nodes)`);
     throw new ApiError(413, 'RESPONSE_TOO_LARGE', 'Response likely exceeds configured payload budget', {
       maxBytes,
       estimatedBytes,
       nodeCount
     });
   }
+  console.info(`[payload] budget ok: nodeCount=${nodeCount} estimatedBytes=${estimatedBytes} maxBytes=${maxBytes}`);
 }

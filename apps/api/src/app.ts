@@ -17,8 +17,21 @@ export function createApp(config: AppConfig) {
 
   app.register(cors, { origin: true });
 
-  app.setErrorHandler((error, _request, reply) => {
+  app.setErrorHandler((error, request, reply) => {
     const formatted = toErrorResponse(error);
+
+    if (error instanceof ApiError) {
+      request.log.error(
+        { statusCode: error.statusCode, code: error.code, details: error.details },
+        `API error: ${error.message}`
+      );
+    } else {
+      request.log.error(
+        { err: error, statusCode: formatted.statusCode },
+        `Unhandled error: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+
     reply.status(formatted.statusCode).send(formatted.payload);
   });
 
@@ -64,6 +77,10 @@ export function createApp(config: AppConfig) {
     const requestedPath = resolveRequestedPath(config.root, parsed.path);
     const minSize = parsed.minSize ?? config.defaultMinSize;
     const levels = Math.min(parsed.levels, config.limits.maxChildrenLevels);
+    request.log.info(
+      { path: requestedPath, levels, sort: parsed.sort, minSize, maxNodes: config.limits.maxRecursiveNodes },
+      'children request started'
+    );
     const result = await getChildrenTree({
       config,
       path: requestedPath,
@@ -75,6 +92,11 @@ export function createApp(config: AppConfig) {
       maxResponseBytes: config.limits.maxChildrenResponseBytes,
       executor
     });
+
+    request.log.info(
+      { path: requestedPath, levels, nodeCount: result.nodeCount, truncated: result.truncated, totalSizeBytes: result.totalSizeBytes, maxResponseBytes: config.limits.maxChildrenResponseBytes },
+      'children walk completed'
+    );
 
     const payload = {
       path: requestedPath,
@@ -103,6 +125,11 @@ export function createApp(config: AppConfig) {
 
     const requestedPath = resolveRequestedPath(config.root, parsed.data.path);
     
+    request.log.info(
+      { path: requestedPath, levels: parsed.data.levels, maxNodes: config.limits.maxTreeNodes },
+      'tree request started'
+    );
+
     const result = await getTreeJson({
       config,
       path: requestedPath,
@@ -110,6 +137,11 @@ export function createApp(config: AppConfig) {
       maxNodes: config.limits.maxTreeNodes,
       executor
     });
+
+    request.log.info(
+      { path: requestedPath, levels: parsed.data.levels, nodeCount: result.nodeCount, truncated: result.truncated, totalSizeBytes: result.totalSizeBytes, maxResponseBytes: config.limits.maxTreeResponseBytes },
+      'tree walk completed'
+    );
 
     const payload = {
       path: requestedPath,
