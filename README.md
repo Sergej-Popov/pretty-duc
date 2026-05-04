@@ -2,6 +2,12 @@
 
 Web UI for exploring disk usage. Point it at a [Duc](https://github.com/zevv/duc) database and browse with treemaps, sunbursts, flame graphs, filterable tables, and keyboard-driven navigation.
 
+This project was built entirely with AI tools: 
+* OpenCode + GPT 5.4
+* Gemini CLI + 3.1 Pro
+* OpenCode + Ollama Cloud + Minimax M2.7
+* OpenCode Go + DeepSeek V4 Pro
+
 ## Screenshots
 
 <p align="center">
@@ -107,3 +113,15 @@ The directory exists on disk but hasn't been indexed. Re-run the Duc scanner or 
 
 **"Cannot navigate above root directory"**
 You're trying to browse above `DUC_ROOT`. All paths are restricted to the configured scan root.
+
+## Credits
+
+Built on top of these projects:
+
+- [Duc](https://github.com/zevv/duc) — disk usage CLI
+- [React](https://react.dev) + [Mantine](https://mantine.dev) — UI framework and component library
+- [Apache ECharts](https://echarts.apache.org) — charting engine (treemap, sunburst, tree, custom renders)
+- [Fastify](https://fastify.dev) — HTTP server and API framework
+- [Vite](https://vite.dev) — frontend build tooling
+- [Bun](https://bun.sh) — JavaScript runtime, bundler, and test runner
+- [Zod](https://zod.dev) — schema validation and type inference
