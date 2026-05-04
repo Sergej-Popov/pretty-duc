@@ -33,10 +33,10 @@ export function ExplorerChart({
   const { colorScheme } = useMantineColorScheme();
   const textColor = colorScheme === 'dark' ? theme.white : theme.black;
   const borderColor = colorScheme === 'dark' ? theme.colors.dark[4] : theme.colors.gray[3];
-  const palette = getChartPalette(colorTheme, theme, colorScheme);
+  const palette = getChartPalette(colorTheme, theme);
   const hiddenColor = colorScheme === 'dark' ? theme.colors.gray[7] : theme.colors.gray[5];
   const circlePackingRootColor = getCirclePackingRootColor(colorTheme, colorScheme, theme);
-  const tintColor = colorScheme === 'dark' ? theme.colors.dark[6] : theme.white;
+  const tintColor = theme.white;
   const decal = useDecal
     ? {
         symbol: 'rect',
@@ -674,42 +674,30 @@ function collapseLargeTree(nodes: Array<Record<string, unknown>>): Array<Record<
   }));
 }
 
-function getChartPalette(colorTheme: ChartColorTheme, theme: ReturnType<typeof useMantineTheme>, colorScheme: 'light' | 'dark' | 'auto') {
-  let palette: string[];
+function getChartPalette(colorTheme: ChartColorTheme, theme: ReturnType<typeof useMantineTheme>) {
   switch (colorTheme) {
     case 'blue-mono':
-      palette = [theme.colors.blue[8], theme.colors.blue[7], theme.colors.blue[6], theme.colors.blue[5], theme.colors.blue[4], theme.colors.cyan[5]];
-      break;
+      return [theme.colors.blue[8], theme.colors.blue[7], theme.colors.blue[6], theme.colors.blue[5], theme.colors.blue[4], theme.colors.cyan[5]];
     case 'amber-mono':
-      palette = [theme.colors.orange[8], theme.colors.orange[7], theme.colors.yellow[7], theme.colors.yellow[6], theme.colors.orange[5], theme.colors.red[5]];
-      break;
+      return [theme.colors.orange[8], theme.colors.orange[7], theme.colors.yellow[7], theme.colors.yellow[6], theme.colors.orange[5], theme.colors.red[5]];
     case 'forest':
-      palette = ['#1B4332', '#2D6A4F', '#40916C', '#52B788', '#74C69D', '#95D5B2', '#B7E4C7'];
-      break;
+      return ['#1B4332', '#2D6A4F', '#40916C', '#52B788', '#74C69D', '#95D5B2', '#B7E4C7'];
     case 'sunset':
-      palette = ['#2B1055', '#571089', '#9A208C', '#E11299', '#FF6D28', '#FCE700', '#FFB84C'];
-      break;
+      return ['#2B1055', '#571089', '#9A208C', '#E11299', '#FF6D28', '#FCE700', '#FFB84C'];
     case 'aurora':
-      palette = ['#172A3A', '#004346', '#09BC8A', '#75DDDD', '#B8F2E6', '#DDFBD2', '#F2F3AE'];
-      break;
+      return ['#172A3A', '#004346', '#09BC8A', '#75DDDD', '#B8F2E6', '#DDFBD2', '#F2F3AE'];
     case 'candy':
-      palette = ['#FF70A6', '#FF9770', '#FFD670', '#E9FF70', '#70D6FF', '#B388EB', '#F7A8B8'];
-      break;
+      return ['#FF70A6', '#FF9770', '#FFD670', '#E9FF70', '#70D6FF', '#B388EB', '#F7A8B8'];
     case 'terminal':
-      palette = ['#0B3D20', '#116530', '#21A179', '#00D084', '#7CFF6B', '#C6FF00', '#E8FFB7'];
-      break;
+      return ['#0B3D20', '#116530', '#21A179', '#00D084', '#7CFF6B', '#C6FF00', '#E8FFB7'];
     case 'jewel':
-      palette = ['#0B132B', '#3A0CA3', '#4361EE', '#4CC9F0', '#2EC4B6', '#FF9F1C', '#E71D36'];
-      break;
+      return ['#0B132B', '#3A0CA3', '#4361EE', '#4CC9F0', '#2EC4B6', '#FF9F1C', '#E71D36'];
     case 'volcanic':
-      palette = ['#140F0F', '#4A0F0F', '#8A1C0F', '#C73E1D', '#FF6B35', '#FFB627', '#FFE66D'];
-      break;
+      return ['#140F0F', '#4A0F0F', '#8A1C0F', '#C73E1D', '#FF6B35', '#FFB627', '#FFE66D'];
     case 'pastel':
-      palette = ['#A0C4FF', '#BDB2FF', '#FFC6FF', '#FFADAD', '#FFD6A5', '#FDFFB6', '#CAFFBF', '#9BF6FF'];
-      break;
+      return ['#A0C4FF', '#BDB2FF', '#FFC6FF', '#FFADAD', '#FFD6A5', '#FDFFB6', '#CAFFBF', '#9BF6FF'];
     case 'ocean':
-    default:
-      palette = [
+      return [
         theme.colors.blue[6],
         theme.colors.blue[4],
         theme.colors.cyan[6],
@@ -725,14 +713,7 @@ function getChartPalette(colorTheme: ChartColorTheme, theme: ReturnType<typeof u
         theme.colors.lime[5],
         theme.colors.orange[5]
       ];
-      break;
   }
-
-  if (colorScheme === 'dark') {
-    return palette.map((color) => mixHexColors(color, theme.colors.dark[7], 0.25));
-  }
-
-  return palette;
 }
 
 function getCirclePackingRootColor(colorTheme: ChartColorTheme, colorScheme: 'light' | 'dark' | 'auto', theme: ReturnType<typeof useMantineTheme>) {

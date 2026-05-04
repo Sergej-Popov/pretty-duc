@@ -1,4 +1,21 @@
 import { z } from 'zod';
+import fs from 'node:fs';
+import path from 'node:path';
+import { userConfigSchema, type UserConfig } from '@pretty-duc/contracts';
+
+const LIMIT_KEYS = [
+  'ducTimeoutMs',
+  'recursiveBudgetMs',
+  'defaultLevels',
+  'maxChildrenLevels',
+  'maxTreeLevels',
+  'maxChildrenPerDirectory',
+  'maxRecursiveNodes',
+  'maxTreeNodes',
+  'maxChildrenResponseBytes',
+  'maxTreeResponseBytes',
+  'recursiveConcurrency'
+] as const;
 
 export const appDefaults = {
   database: '/database/duc.db',
@@ -25,6 +42,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(appDefaults.port),
   DUC_BIN: z.string().default(appDefaults.ducBin),
   DUC_MOCK_ROOT: z.string().optional(),
+  CONFIG_FILE: z.string().default('pretty-duc-config.json'),
   ENABLE_TREE_API: z.string().optional().transform((v) => v === 'true'),
   DEFAULT_MIN_SIZE: z
     .string()
@@ -39,6 +57,7 @@ export type AppConfig = {
   port: number;
   ducBin: string;
   mockScanRoot: string | null;
+  configFilePath: string;
   enableTreeApi: boolean;
   defaultMinSize: number | null;
   limits: {
@@ -71,6 +90,7 @@ export function parseConfig(env: Record<string, string | undefined>): AppConfig 
     port: parsed.PORT,
     ducBin: parsed.DUC_BIN,
     mockScanRoot: parsed.DUC_MOCK_ROOT?.trim() ? parsed.DUC_MOCK_ROOT.trim() : null,
+    configFilePath: parsed.CONFIG_FILE,
     enableTreeApi: parsed.ENABLE_TREE_API ?? appDefaults.enableTreeApi,
     defaultMinSize,
     limits: {
@@ -87,6 +107,56 @@ export function parseConfig(env: Record<string, string | undefined>): AppConfig 
       recursiveConcurrency: appDefaults.recursiveConcurrency
     }
   };
+}
+
+export function buildConfig(env: Record<string, string | undefined>): AppConfig {
+  const base = parseConfig(env);
+  const saved = readConfigFile(base.configFilePath);
+
+  if (saved) {
+    if (saved.enableTreeApi !== undefined) {
+      base.enableTreeApi = saved.enableTreeApi;
+    }
+
+    if (saved.defaultMinSize !== undefined) {
+      base.defaultMinSize = saved.defaultMinSize;
+    }
+
+    if (saved.limits) {
+      for (const key of LIMIT_KEYS) {
+        const value = saved.limits[key as keyof typeof saved.limits];
+        if (value !== undefined) {
+          (base.limits as Record<string, unknown>)[key] = value;
+        }
+      }
+    }
+  }
+
+  return base;
+}
+
+export function readConfigFile(filePath: string): UserConfig | null {
+  try {
+    const content = fs.readFileSync(path.resolve(filePath), 'utf-8');
+    const parsed = userConfigSchema.safeParse(JSON.parse(content));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeConfigFile(filePath: string, config: UserConfig): void {
+  const dir = path.dirname(path.resolve(filePath));
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.resolve(filePath), JSON.stringify(config, null, 2), 'utf-8');
+}
+
+export function deleteConfigFile(filePath: string): void {
+  try {
+    fs.unlinkSync(path.resolve(filePath));
+  } catch {
+    // File doesn't exist, nothing to do
+  }
 }
 
 export function normalizeDucPath(input: string): string {

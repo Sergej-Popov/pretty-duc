@@ -4,15 +4,17 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import type { AppConfig } from '@pretty-duc/config';
-import { treeQuerySchema, type SortMode } from '@pretty-duc/contracts';
+import { writeConfigFile, deleteConfigFile, readConfigFile } from '@pretty-duc/config';
+import { treeQuerySchema, userConfigSchema, type SortMode } from '@pretty-duc/contracts';
 import { parseDucInfoOutput, assertReasonablePayload } from './lib/parser';
 import { createExecutor, getChildrenTree, getTreeJson } from './lib/duc';
 import { ApiError, toErrorResponse } from './lib/errors';
 import { resolveRequestedPath } from './lib/path-policy';
 
-export function createApp(config: AppConfig) {
+export function createApp(initialConfig: AppConfig) {
   const app = Fastify({ logger: true });
-  const executor = createExecutor(config, 4); // Global Duc process concurrency: 4
+  let currentConfig: AppConfig = { ...initialConfig, limits: { ...initialConfig.limits } };
+  const executor = createExecutor(currentConfig, 4);
   const webDist = path.resolve(import.meta.dir, '../../web/dist');
 
   app.register(cors, { origin: true });
@@ -40,14 +42,14 @@ export function createApp(config: AppConfig) {
     let databaseReadable = false;
 
     try {
-      await executor(['--version'], config.limits.ducTimeoutMs);
+      await executor(['--version'], currentConfig.limits.ducTimeoutMs);
       ducAvailable = true;
     } catch {
       ducAvailable = false;
     }
 
     try {
-      await fs.access(config.database);
+      await fs.access(currentConfig.database);
       databaseReadable = true;
     } catch {
       databaseReadable = false;
@@ -57,15 +59,15 @@ export function createApp(config: AppConfig) {
       ok: ducAvailable && databaseReadable,
       ducAvailable,
       databaseReadable,
-      database: config.database,
-      root: config.root
+      database: currentConfig.database,
+      root: currentConfig.root
     };
   });
 
   app.get('/api/info', async () => {
-    const result = await executor(['info', '-d', config.database], config.limits.ducTimeoutMs);
+    const result = await executor(['info', '-d', currentConfig.database], currentConfig.limits.ducTimeoutMs);
     return {
-      database: config.database,
+      database: currentConfig.database,
       raw: result.stdout.trim(),
       parsed: parseDucInfoOutput(result.stdout)
     };
@@ -74,27 +76,27 @@ export function createApp(config: AppConfig) {
   app.get('/api/children', async (request) => {
     const parsed = parseChildrenQuery(request.query);
 
-    const requestedPath = resolveRequestedPath(config.root, parsed.path);
-    const minSize = parsed.minSize ?? config.defaultMinSize;
-    const levels = Math.min(parsed.levels, config.limits.maxChildrenLevels);
+    const requestedPath = resolveRequestedPath(currentConfig.root, parsed.path);
+    const minSize = parsed.minSize ?? currentConfig.defaultMinSize;
+    const levels = Math.min(parsed.levels, currentConfig.limits.maxChildrenLevels);
     request.log.info(
-      { path: requestedPath, levels, sort: parsed.sort, minSize, maxNodes: config.limits.maxRecursiveNodes },
+      { path: requestedPath, levels, sort: parsed.sort, minSize, maxNodes: currentConfig.limits.maxRecursiveNodes },
       'children request started'
     );
     const result = await getChildrenTree({
-      config,
+      config: currentConfig,
       path: requestedPath,
       levels,
       minSize,
       sort: parsed.sort,
-      maxNodes: config.limits.maxRecursiveNodes,
-      maxChildrenPerDirectory: config.limits.maxChildrenPerDirectory,
-      maxResponseBytes: config.limits.maxChildrenResponseBytes,
+      maxNodes: currentConfig.limits.maxRecursiveNodes,
+      maxChildrenPerDirectory: currentConfig.limits.maxChildrenPerDirectory,
+      maxResponseBytes: currentConfig.limits.maxChildrenResponseBytes,
       executor
     });
 
     request.log.info(
-      { path: requestedPath, levels, nodeCount: result.nodeCount, truncated: result.truncated, totalSizeBytes: result.totalSizeBytes, maxResponseBytes: config.limits.maxChildrenResponseBytes },
+      { path: requestedPath, levels, nodeCount: result.nodeCount, truncated: result.truncated, totalSizeBytes: result.totalSizeBytes, maxResponseBytes: currentConfig.limits.maxChildrenResponseBytes },
       'children walk completed'
     );
 
@@ -108,12 +110,12 @@ export function createApp(config: AppConfig) {
       children: result.children
     };
 
-    assertReasonablePayload(result.nodeCount, config.limits.maxChildrenResponseBytes);
+    assertReasonablePayload(result.nodeCount, currentConfig.limits.maxChildrenResponseBytes);
     return payload;
   });
 
   app.get('/api/tree', async (request) => {
-    if (!config.enableTreeApi) {
+    if (!currentConfig.enableTreeApi) {
       throw new ApiError(403, 'FEATURE_DISABLED', 'Tree endpoint is disabled by configuration');
     }
 
@@ -123,23 +125,23 @@ export function createApp(config: AppConfig) {
       throw new ApiError(422, 'INVALID_QUERY', 'Invalid tree query', { issues: parsed.error.issues });
     }
 
-    const requestedPath = resolveRequestedPath(config.root, parsed.data.path);
-    
+    const requestedPath = resolveRequestedPath(currentConfig.root, parsed.data.path);
+
     request.log.info(
-      { path: requestedPath, levels: parsed.data.levels, maxNodes: config.limits.maxTreeNodes },
+      { path: requestedPath, levels: parsed.data.levels, maxNodes: currentConfig.limits.maxTreeNodes },
       'tree request started'
     );
 
     const result = await getTreeJson({
-      config,
+      config: currentConfig,
       path: requestedPath,
       levels: parsed.data.levels,
-      maxNodes: config.limits.maxTreeNodes,
+      maxNodes: currentConfig.limits.maxTreeNodes,
       executor
     });
 
     request.log.info(
-      { path: requestedPath, levels: parsed.data.levels, nodeCount: result.nodeCount, truncated: result.truncated, totalSizeBytes: result.totalSizeBytes, maxResponseBytes: config.limits.maxTreeResponseBytes },
+      { path: requestedPath, levels: parsed.data.levels, nodeCount: result.nodeCount, truncated: result.truncated, totalSizeBytes: result.totalSizeBytes, maxResponseBytes: currentConfig.limits.maxTreeResponseBytes },
       'tree walk completed'
     );
 
@@ -153,8 +155,66 @@ export function createApp(config: AppConfig) {
       children: result.children
     };
 
-    assertReasonablePayload(result.nodeCount, config.limits.maxTreeResponseBytes);
+    assertReasonablePayload(result.nodeCount, currentConfig.limits.maxTreeResponseBytes);
     return payload;
+  });
+
+  app.get('/api/config', async () => {
+    const hasSaved = readConfigFile(currentConfig.configFilePath) !== null;
+
+    return {
+      limits: currentConfig.limits,
+      enableTreeApi: currentConfig.enableTreeApi,
+      defaultMinSize: currentConfig.defaultMinSize,
+      configFilePath: currentConfig.configFilePath,
+      hasSavedConfig: hasSaved
+    };
+  });
+
+  app.put('/api/config', async (request) => {
+    const parsed = userConfigSchema.safeParse(request.body);
+
+    if (!parsed.success) {
+      throw new ApiError(422, 'INVALID_CONFIG', 'Invalid config payload', { issues: parsed.error.issues });
+    }
+
+    const update = parsed.data;
+
+    if (update.enableTreeApi !== undefined) {
+      currentConfig.enableTreeApi = update.enableTreeApi;
+    }
+
+    if (update.defaultMinSize !== undefined) {
+      currentConfig.defaultMinSize = update.defaultMinSize;
+    }
+
+    if (update.limits) {
+      const limitKeys = Object.keys(update.limits) as Array<keyof typeof update.limits>;
+      for (const key of limitKeys) {
+        const value = update.limits[key];
+        if (value !== undefined) {
+          (currentConfig.limits as Record<string, unknown>)[key] = value;
+        }
+      }
+    }
+
+    writeConfigFile(currentConfig.configFilePath, {
+      limits: currentConfig.limits,
+      enableTreeApi: currentConfig.enableTreeApi,
+      defaultMinSize: currentConfig.defaultMinSize
+    });
+
+    return { ok: true };
+  });
+
+  app.post('/api/config/reset', async () => {
+    deleteConfigFile(currentConfig.configFilePath);
+
+    currentConfig.enableTreeApi = initialConfig.enableTreeApi;
+    currentConfig.defaultMinSize = initialConfig.defaultMinSize;
+    currentConfig.limits = { ...initialConfig.limits };
+
+    return { ok: true };
   });
 
   app.register(fastifyStatic, {

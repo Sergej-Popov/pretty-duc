@@ -94,3 +94,37 @@ export const apiErrorSchema = z.object({
   })
 });
 export type ApiErrorResponse = z.infer<typeof apiErrorSchema>;
+
+export const configLimitsSchema = z.object({
+  ducTimeoutMs: z.number().int().positive(),
+  recursiveBudgetMs: z.number().int().positive(),
+  defaultLevels: z.number().int().min(1).max(6),
+  maxChildrenLevels: z.number().int().min(1).max(10),
+  maxTreeLevels: z.number().int().min(1).max(5),
+  maxChildrenPerDirectory: z.number().int().positive(),
+  maxRecursiveNodes: z.number().int().positive(),
+  maxTreeNodes: z.number().int().positive(),
+  maxChildrenResponseBytes: z.number().int().positive(),
+  maxTreeResponseBytes: z.number().int().positive(),
+  recursiveConcurrency: z.number().int().min(1).max(8)
+});
+export type ConfigLimits = z.infer<typeof configLimitsSchema>;
+
+export const partialConfigLimitsSchema = configLimitsSchema.partial();
+export type PartialConfigLimits = z.infer<typeof partialConfigLimitsSchema>;
+
+export const userConfigSchema = z.object({
+  limits: partialConfigLimitsSchema.optional(),
+  enableTreeApi: z.boolean().optional(),
+  defaultMinSize: z.number().int().nonnegative().nullable().optional()
+});
+export type UserConfig = z.infer<typeof userConfigSchema>;
+
+export const configResponseSchema = z.object({
+  limits: configLimitsSchema,
+  enableTreeApi: z.boolean(),
+  defaultMinSize: z.number().int().nonnegative().nullable(),
+  configFilePath: z.string(),
+  hasSavedConfig: z.boolean()
+});
+export type ConfigResponse = z.infer<typeof configResponseSchema>;

@@ -1,0 +1,17 @@
+{
+  "limits": {
+    "ducTimeoutMs": 20000,
+    "recursiveBudgetMs": 15000,
+    "defaultLevels": 1,
+    "maxChildrenLevels": 6,
+    "maxTreeLevels": 2,
+    "maxChildrenPerDirectory": 2000,
+    "maxRecursiveNodes": 5000,
+    "maxTreeNodes": 1000,
+    "maxChildrenResponseBytes": 1048576,
+    "maxTreeResponseBytes": 524288,
+    "recursiveConcurrency": 2
+  },
+  "enableTreeApi": true,
+  "defaultMinSize": null
+}

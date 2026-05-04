@@ -36,12 +36,19 @@ import type { ChildrenResponse, ExplorerNode, SortMode } from '@pretty-duc/contr
 import { buildBreadcrumbs, filterNodes, formatBytes, toChartTree } from '@pretty-duc/ui-model';
 import { fetchChildren, fetchHealth, fetchInfo } from './api';
 import { ExplorerChart, type ChartColorTheme, type ChartViewMode, type SunburstHighlightMode } from './ExplorerChart';
+import { SettingsModal } from './SettingsModal';
 
 type ViewMode = ChartViewMode;
 type TableSortMode = 'sizeDesc' | 'sizeAsc' | 'nameAsc' | 'nameDesc' | 'typeAsc' | 'typeDesc';
 
+interface Bookmark {
+  path: string;
+  label: string;
+}
+
 export function App() {
   const [mobileOpened, { toggle }] = useDisclosure();
+  const [settingsOpened, { open: openSettings, close: closeSettings }] = useDisclosure(false);
   const [path, setPath] = useState(getInitialPath);
   const [sort, setSort] = useState<TableSortMode>(getInitialSort);
   const [view, setView] = useState<ViewMode>(getInitialView);
@@ -69,6 +76,8 @@ export function App() {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const { colorScheme, setColorScheme } = useMantineColorScheme();
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>(getInitialBookmarks);
+  const [editingBookmark, setEditingBookmark] = useState<string | null>(null);
 
   const suggestionsRef = useRef<string[]>([]);
   const queryRef = useRef('');
@@ -174,6 +183,10 @@ export function App() {
   }, [sunburstHighlightMode]);
 
   useEffect(() => {
+    localStorage.setItem('bookmarks', JSON.stringify(bookmarks));
+  }, [bookmarks]);
+
+  useEffect(() => {
     fetchHealth()
       .then((result) => {
         setHealth(result.ok ? 'Connected' : 'Degraded');
@@ -243,6 +256,11 @@ export function App() {
   const suggestions = useMemo(() => getAutocompleteSuggestions(data?.children ?? [], query), [data?.children, query]);
   suggestionsRef.current = suggestions;
 
+  const contextNode = useMemo(
+    () => contextMenu ? findNodeByPath(data?.children ?? [], contextMenu.path) : null,
+    [contextMenu, data?.children]
+  );
+
   useEffect(() => {
     if (sunburstRootPath && !findNodeByPath(chartSourceNodes, sunburstRootPath)) {
       setSunburstRootPath(null);
@@ -257,6 +275,25 @@ export function App() {
 
     setActiveIndex((current) => Math.min(current, visibleNodes.length - 1));
   }, [visibleNodes]);
+
+  function addBookmark(bookmarkPath: string, bookmarkLabel?: string) {
+    setBookmarks(current => {
+      if (current.some(b => b.path === bookmarkPath)) return current;
+      const crumbs = buildBreadcrumbs(bookmarkPath);
+      const label = bookmarkLabel ?? crumbs[crumbs.length - 1]?.label ?? bookmarkPath;
+      return [...current, { path: bookmarkPath, label }];
+    });
+  }
+
+  function removeBookmark(bookmarkPath: string) {
+    setBookmarks(current => current.filter(b => b.path !== bookmarkPath));
+  }
+
+  function updateBookmarkLabel(bookmarkPath: string, newLabel: string) {
+    if (!newLabel.trim()) return;
+    setBookmarks(current => current.map(b => b.path === bookmarkPath ? { ...b, label: newLabel.trim() } : b));
+    setEditingBookmark(null);
+  }
 
   function navigate(nextPath: string) {
     if (nextPath !== rootPath && !nextPath.startsWith(rootPath + '/')) {
@@ -344,6 +381,8 @@ export function App() {
     setSort((current) => nextTableSort(current, column));
   }
 
+  const isCurrentPathBookmarked = bookmarks.some(b => b.path === path);
+
   return (
     <AppShell
       className="pretty-duc-shell"
@@ -370,6 +409,17 @@ export function App() {
 
           <Group className="app-header-actions" gap="xs">
             <Badge className="duc-info-badge" variant="dot" color="gray" visibleFrom="sm">{info}</Badge>
+            <Tooltip label="Settings">
+              <ActionIcon
+                className="settings-button"
+                variant="default"
+                radius="sm"
+                size="lg"
+                onClick={openSettings}
+              >
+                &#x2699;
+              </ActionIcon>
+            </Tooltip>
             <Tooltip label="Toggle color scheme">
               <ActionIcon
                 className="color-scheme-toggle"
@@ -597,6 +647,61 @@ export function App() {
                 </Button>
               </Stack>
             </Paper>
+            {bookmarks.length > 0 && (
+              <Paper className="bookmarks-panel" withBorder p="md" radius="sm">
+                <Stack className="bookmarks-stack" gap="xs">
+                  <Text className="bookmarks-panel-title" size="xs" tt="uppercase" fw={700} c="dimmed">Bookmarks</Text>
+                  {bookmarks.map(bookmark => (
+                    <Group key={bookmark.path} className="bookmark-item" gap="xs" wrap="nowrap">
+                      {editingBookmark === bookmark.path ? (
+                        <TextInput
+                          className="bookmark-edit-input"
+                          size="xs"
+                          defaultValue={bookmark.label}
+                          autoFocus
+                          onBlur={(e) => updateBookmarkLabel(bookmark.path, e.currentTarget.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') updateBookmarkLabel(bookmark.path, e.currentTarget.value);
+                            if (e.key === 'Escape') setEditingBookmark(null);
+                          }}
+                          style={{ flex: 1 }}
+                        />
+                      ) : (
+                        <Box
+                          className="bookmark-info"
+                          style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}
+                          onClick={() => navigate(bookmark.path)}
+                        >
+                          <Text className="bookmark-label" size="sm" fw={500} truncate>{bookmark.label}</Text>
+                          <Text className="bookmark-path" size="xs" c="dimmed" truncate>{bookmark.path}</Text>
+                        </Box>
+                      )}
+                      <Tooltip label="Edit label">
+                        <ActionIcon
+                          className="bookmark-edit-button"
+                          variant="subtle"
+                          size="sm"
+                          onClick={() => setEditingBookmark(editingBookmark === bookmark.path ? null : bookmark.path)}
+                        >
+                          ✎
+                        </ActionIcon>
+                      </Tooltip>
+                      <Tooltip label="Remove bookmark">
+                        <ActionIcon
+                          className="bookmark-remove-button"
+                          variant="subtle"
+                          color="red"
+                          size="sm"
+                          onClick={() => removeBookmark(bookmark.path)}
+                        >
+                          ✕
+                        </ActionIcon>
+                      </Tooltip>
+                    </Group>
+                  ))}
+                </Stack>
+              </Paper>
+            )}
           </Stack>
         </AppShell.Section>
 
@@ -610,6 +715,23 @@ export function App() {
             <Stack className="breadcrumbs-panel-content" gap="lg">
               <Group className="total-size-row" justify="flex-end" align="flex-start">
                 <Badge className="total-size-badge" variant="filled" color="dark" size="lg">{formatBytes(data?.totalSizeBytes ?? 0)} total</Badge>
+                <Tooltip label={isCurrentPathBookmarked ? 'Remove bookmark' : 'Bookmark this path'}>
+                  <ActionIcon
+                    className="bookmark-toggle-button"
+                    variant={isCurrentPathBookmarked ? 'filled' : 'default'}
+                    color="yellow"
+                    size="md"
+                    onClick={() => {
+                      if (isCurrentPathBookmarked) {
+                        removeBookmark(path);
+                      } else {
+                        addBookmark(path);
+                      }
+                    }}
+                  >
+                    {isCurrentPathBookmarked ? '★' : '☆'}
+                  </ActionIcon>
+                </Tooltip>
               </Group>
 
               <Breadcrumbs className="path-breadcrumbs" separator="/">
@@ -805,9 +927,20 @@ export function App() {
           <Menu.Item className="toggle-hidden-menu-item" onClick={() => contextMenu && toggleHiddenPath(contextMenu.path)}>
             {contextMenu && hiddenPaths.includes(contextMenu.path) ? 'Unhide item' : 'Hide item from view'}
           </Menu.Item>
+          {contextNode?.type === 'directory' && !bookmarks.some(b => b.path === contextNode.path) ? (
+            <Menu.Item className="bookmark-context-item" onClick={() => { addBookmark(contextMenu!.path); setContextMenu(null); }}>
+              Bookmark this directory
+            </Menu.Item>
+          ) : null}
+          {contextNode?.type === 'directory' && bookmarks.some(b => b.path === contextNode.path) ? (
+            <Menu.Item className="remove-bookmark-context-item" onClick={() => { removeBookmark(contextMenu!.path); setContextMenu(null); }}>
+              Remove bookmark
+            </Menu.Item>
+          ) : null}
           <Menu.Item className="cancel-context-menu-item" onClick={() => setContextMenu(null)}>Cancel</Menu.Item>
         </Menu.Dropdown>
       </Menu>
+      <SettingsModal opened={settingsOpened} onClose={closeSettings} />
     </AppShell>
   );
 }
@@ -1053,6 +1186,19 @@ function sortVisibleNodes(nodes: ExplorerNode[], sort: TableSortMode) {
       return copy.sort((left, right) => left.type.localeCompare(right.type) || left.name.localeCompare(right.name));
     case 'typeDesc':
       return copy.sort((left, right) => right.type.localeCompare(left.type) || left.name.localeCompare(right.name));
+  }
+}
+
+function getInitialBookmarks(): Bookmark[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem('bookmarks');
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((b): b is Bookmark => typeof b?.path === 'string' && typeof b?.label === 'string');
+  } catch {
+    return [];
   }
 }
 

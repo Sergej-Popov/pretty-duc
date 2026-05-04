@@ -46,6 +46,7 @@
       "name": "@pretty-duc/config",
       "version": "0.1.0",
       "dependencies": {
+        "@pretty-duc/contracts": "workspace:*",
         "zod": "^4.1.12",
       },
     },
