@@ -18,9 +18,13 @@ services:
       DUC_DATABASE: /database/duc.db
       DUC_ROOT: /scan/root
       PORT: 3000
+      DATA_DIR: /data
+      CONFIG_FILE: /data/pretty-duc-config.json
     volumes:
       - duc_database:/database:ro
       - /:/scan/root:ro
+      - pretty_duc_data:/data
 
 volumes:
   duc_database:
+  pretty_duc_data:

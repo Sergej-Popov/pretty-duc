@@ -76,6 +76,7 @@ Open `http://localhost:3000`.
 | `DEFAULT_MIN_SIZE` | unset | Min file size filter in bytes |
 | `ENABLE_TREE_API` | `false` | Enables `/api/tree` endpoint |
 | `CONFIG_FILE` | `pretty-duc-config.json` | Path to runtime config file |
+| `DATA_DIR` | `.` | Where volume free-space history (`volume-history.json`) and scan snapshots (`snapshots.json`) are kept; mount a volume here |
 
 ## Docker
 
@@ -123,6 +124,15 @@ Primary browsing endpoint. Returns directory children, supports recursive expans
 
 ### `GET /api/volumes`
 The scan root plus every data filesystem mounted below it (read from `/proc/self/mountinfo`), with size, used and free bytes. Mounts inside a volume on the same storage (ZFS child datasets, bind mounts) are left out, so each disk or pool appears once, at its top. Charts use it to add "Free space" slices inside each volume, and "Free space" / "Other data on disk" at the top level when the current directory is at most one level inside its volume. Requires the scan root to be mounted read-only into the Pretty Duc container at the same path the scanner uses (e.g. `/:/scan/root:ro`); returns an empty list otherwise.
+
+### `GET /api/volumes/history`
+Volumes plus hourly free-space samples (thinned to daily after 7 days, kept for a year) and a least-squares forecast over the last 14 days (`freeBytesPerDay`, `daysUntilFull`).
+
+### `GET /api/changes?path=/scan/root`
+Files and directories under `path` that grew or shrank between the last two snapshots. A background job snapshots every entry of 100 MB or more after each new Duc scan (checked every 10 minutes); a directory is left out when one of its listed descendants explains most of its change.
+
+### `GET /api/large-files?path=/scan/root&olderThanDays=180&limit=50`
+Largest files (100 MB or more) under `path` from the latest snapshot, optionally only those not modified for `olderThanDays` days.
 
 ### `GET /api/tree?path=/scan/root/var&levels=2`
 Subtree endpoint. Disabled by default (enable with `ENABLE_TREE_API`).

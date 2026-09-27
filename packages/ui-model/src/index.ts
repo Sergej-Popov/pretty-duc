@@ -60,3 +60,17 @@ export function toChartTree(nodes: ExplorerNode[]): Array<Record<string, unknown
     children: node.children ? toChartTree(node.children) : undefined
   }));
 }
+
+export type SpaceLevel = 'ok' | 'warning' | 'critical';
+
+export const LOW_SPACE_WARNING_RATIO = 0.15;
+export const LOW_SPACE_CRITICAL_RATIO = 0.05;
+
+// Amber below 15% free, red below 5% free.
+export function getSpaceLevel(freeBytes: number, totalBytes: number): SpaceLevel {
+  if (totalBytes <= 0) return 'ok';
+  const ratio = freeBytes / totalBytes;
+  if (ratio < LOW_SPACE_CRITICAL_RATIO) return 'critical';
+  if (ratio < LOW_SPACE_WARNING_RATIO) return 'warning';
+  return 'ok';
+}

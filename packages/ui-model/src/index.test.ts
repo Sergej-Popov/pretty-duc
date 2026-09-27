@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { buildBreadcrumbs, filterNodes, formatBytes, largestItems } from './index';
+import { buildBreadcrumbs, filterNodes, formatBytes, getSpaceLevel, largestItems } from './index';
 
 const nodes = [
   { name: 'var', path: '/scan/root/var', sizeBytes: 4000, humanSize: '4 KB', type: 'directory', percentOfParent: 50, hasChildren: true },
@@ -23,5 +23,14 @@ describe('ui model', () => {
   test('filters nodes', () => {
     expect(filterNodes(nodes as never, 'ho')).toHaveLength(1);
     expect(largestItems(nodes as never, 1)[0]?.name).toBe('home');
+  });
+});
+
+describe('getSpaceLevel', () => {
+  test('flags low free space', () => {
+    expect(getSpaceLevel(50, 100)).toBe('ok');
+    expect(getSpaceLevel(10, 100)).toBe('warning');
+    expect(getSpaceLevel(4, 100)).toBe('critical');
+    expect(getSpaceLevel(0, 0)).toBe('ok');
   });
 });

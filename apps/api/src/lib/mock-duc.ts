@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import type { Volume } from '@pretty-duc/contracts';
 import type { DucExecutor } from './duc';
 import { ApiError } from './errors';
 import { Semaphore, withLimit } from './concurrency';
@@ -11,10 +12,11 @@ type MockExecutorOptions = {
   virtualRoot: string;
 };
 
-type MockManifest = {
+export type MockManifest = {
   version?: string;
   lastScanAt?: string;
   fileSizes?: Record<string, number>;
+  volumes?: Volume[];
 };
 
 type MockNode = {
@@ -110,7 +112,7 @@ async function buildMockTreeState(options: MockExecutorOptions): Promise<MockTre
   };
 }
 
-async function readManifest(fixtureRoot: string): Promise<MockManifest> {
+export async function readManifest(fixtureRoot: string): Promise<MockManifest> {
   const manifestPath = `${fixtureRoot}.manifest.json`;
 
   try {

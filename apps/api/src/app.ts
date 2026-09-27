@@ -11,12 +11,18 @@ import { createExecutor, getChildrenTree, getTreeJson } from './lib/duc';
 import { ApiError, toErrorResponse } from './lib/errors';
 import { resolveRequestedPath } from './lib/path-policy';
 import { getVolumes } from './lib/disk';
+import { historyFilePath, readHistory, toVolumeHistories } from './lib/history';
+import { startMonitor, type MonitorState } from './lib/monitor';
+import { computeChanges, findLargeFiles, readSnapshots, snapshotFilePath, SNAPSHOT_MIN_SIZE, toSnapshotInfo } from './lib/snapshots';
 
-export function createApp(initialConfig: AppConfig) {
+export function createApp(initialConfig: AppConfig, options: { background?: boolean } = {}) {
   const app = Fastify({ logger: true });
   let currentConfig: AppConfig = { ...initialConfig, limits: { ...initialConfig.limits } };
   const executor = createExecutor(currentConfig, 4);
   const webDist = path.resolve(import.meta.dir, '../../web/dist');
+  const monitor: MonitorState = options.background
+    ? startMonitor(() => currentConfig, executor)
+    : { snapshotRunning: false, lastError: null };
 
   app.register(cors, { origin: true });
 
@@ -122,6 +128,48 @@ export function createApp(initialConfig: AppConfig) {
 
   app.get('/api/volumes', async () => {
     return { volumes: await getVolumes(currentConfig) };
+  });
+
+  app.get('/api/volumes/history', async () => {
+    const [volumes, history] = await Promise.all([
+      getVolumes(currentConfig),
+      readHistory(historyFilePath(currentConfig.dataDir))
+    ]);
+    return { volumes: toVolumeHistories(history, volumes) };
+  });
+
+  app.get('/api/changes', async (request) => {
+    const requestedPath = resolveRequestedPath(currentConfig.root, readPathQuery(request.query));
+    const snapshots = await readSnapshots(snapshotFilePath(currentConfig.dataDir));
+    const current = snapshots.at(-1);
+    const previous = snapshots.at(-2);
+    const changes = current && previous ? computeChanges(previous, current, requestedPath) : { grown: [], shrunk: [] };
+
+    return {
+      path: requestedPath,
+      from: toSnapshotInfo(previous),
+      to: toSnapshotInfo(current),
+      minSizeBytes: SNAPSHOT_MIN_SIZE,
+      snapshotRunning: monitor.snapshotRunning,
+      ...changes
+    };
+  });
+
+  app.get('/api/large-files', async (request) => {
+    const query = (request.query ?? {}) as Record<string, unknown>;
+    const requestedPath = resolveRequestedPath(currentConfig.root, readPathQuery(query));
+    const olderThanDays = Math.max(0, Number.parseInt(String(query.olderThanDays ?? '0'), 10) || 0);
+    const limit = Math.min(200, Math.max(1, Number.parseInt(String(query.limit ?? '50'), 10) || 50));
+    const current = (await readSnapshots(snapshotFilePath(currentConfig.dataDir))).at(-1);
+
+    return {
+      path: requestedPath,
+      snapshot: toSnapshotInfo(current),
+      minSizeBytes: SNAPSHOT_MIN_SIZE,
+      olderThanDays,
+      snapshotRunning: monitor.snapshotRunning,
+      files: current ? findLargeFiles(current, requestedPath, { olderThanDays, limit }) : []
+    };
   });
 
   app.get('/api/tree', async (request) => {
@@ -278,6 +326,14 @@ export function createApp(initialConfig: AppConfig) {
   });
 
   return app;
+}
+
+function readPathQuery(query: unknown): string {
+  const value = query && typeof query === 'object' ? (query as Record<string, unknown>).path : undefined;
+  if (typeof value !== 'string' || !value) {
+    throw new ApiError(422, 'INVALID_QUERY', 'Path is required');
+  }
+  return value;
 }
 
 function parseChildrenQuery(query: unknown): { path: string; levels: number; sort: SortMode; minSize?: number | null; apparent: boolean } {

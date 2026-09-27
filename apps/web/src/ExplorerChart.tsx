@@ -43,6 +43,10 @@ export function ExplorerChart({
     free: colorScheme === 'dark' ? theme.colors.dark[5] : theme.colors.gray[1],
     other: colorScheme === 'dark' ? theme.colors.dark[3] : theme.colors.gray[4]
   };
+  const spaceLevelColors: Record<string, string> = {
+    warning: colorScheme === 'dark' ? theme.colors.orange[9] : theme.colors.orange[3],
+    critical: colorScheme === 'dark' ? theme.colors.red[9] : theme.colors.red[3]
+  };
   const freeSpaceDecal = {
     symbol: 'rect',
     dashArrayX: [1, 0],
@@ -68,8 +72,8 @@ export function ExplorerChart({
   }, [nodes, dirsOnlyLabels, visibleLabels]);
 
   const styledNodes = useMemo(
-    () => applyChartNodeStyles(chartNodes, { hiddenColor, decal, palette, tintColor, diskSliceColors, freeSpaceDecal }, view),
-    [decal, hiddenColor, chartNodes, palette, tintColor, view, diskSliceColors.free, diskSliceColors.other]
+    () => applyChartNodeStyles(chartNodes, { hiddenColor, decal, palette, tintColor, diskSliceColors, spaceLevelColors, freeSpaceDecal }, view),
+    [decal, hiddenColor, chartNodes, palette, tintColor, view, diskSliceColors.free, diskSliceColors.other, spaceLevelColors.warning, spaceLevelColors.critical]
   );
   const flameData = useMemo(() => toFlameGraphData(styledNodes, palette, decal), [decal, palette, styledNodes]);
   const circleData = useMemo(
@@ -340,6 +344,7 @@ function applyChartNodeStyles(
     palette: string[];
     tintColor: string;
     diskSliceColors: Record<DiskSlice, string>;
+    spaceLevelColors: Record<string, string>;
     freeSpaceDecal: Record<string, unknown>;
   },
   view: ChartViewMode,
@@ -349,7 +354,8 @@ function applyChartNodeStyles(
   return nodes.map((node, index) => {
     const diskSlice = getDiskSlice(node);
     if (diskSlice) {
-      const color = options.diskSliceColors[diskSlice];
+      const levelColor = diskSlice === 'free' && typeof node.spaceLevel === 'string' ? options.spaceLevelColors[node.spaceLevel] : undefined;
+      const color = levelColor ?? options.diskSliceColors[diskSlice];
       const decal = diskSlice === 'free' ? options.freeSpaceDecal : options.decal;
       return {
         ...node,

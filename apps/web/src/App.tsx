@@ -35,9 +35,10 @@ import {
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import type { ChildrenResponse, ExplorerNode, SortMode, TreeResponse, Volume } from '@pretty-duc/contracts';
-import { buildBreadcrumbs, filterNodes, formatBytes, toChartTree } from '@pretty-duc/ui-model';
-import { fetchChildren, fetchHealth, fetchInfo, fetchTree, fetchVolumes, triggerIndex } from './api';
+import type { ChildrenResponse, ExplorerNode, SortMode, TreeResponse, Volume, VolumeHistory } from '@pretty-duc/contracts';
+import { buildBreadcrumbs, filterNodes, formatBytes, getSpaceLevel, toChartTree } from '@pretty-duc/ui-model';
+import { fetchChildren, fetchHealth, fetchInfo, fetchTree, fetchVolumeHistory, triggerIndex } from './api';
+import { ChangesPanel, LargeFilesPanel, LowSpaceAlerts, useSpaceWarnings, VolumesPanel, WarningsMenu } from './Insights';
 import { ExplorerChart, type ChartColorTheme, type ChartViewMode, type SunburstHighlightMode } from './ExplorerChart';
 import { SettingsModal } from './SettingsModal';
 
@@ -81,7 +82,10 @@ export function App() {
   const [contextMenu, setContextMenu] = useState<{ path: string; x: number; y: number } | null>(null);
   const [useDecal, setUseDecal] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('useDecal') === 'true' : false);
   const [showFreeSpace, setShowFreeSpace] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('showFreeSpace') !== 'false' : true);
-  const [volumes, setVolumes] = useState<Volume[]>([]);
+  const [showChanges, setShowChanges] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('showChanges') === 'true' : false);
+  const [showLargeFiles, setShowLargeFiles] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('showLargeFiles') === 'true' : false);
+  const [volumes, setVolumes] = useState<VolumeHistory[]>([]);
+  const spaceWarnings = useSpaceWarnings(volumes);
   const [showLabels, setShowLabels] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('showLabels') !== 'false' : true);
   const [dirsOnlyLabels, setDirsOnlyLabels] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('dirsOnlyLabels') !== 'false' : true);
   const [sunburstHighlightMode, setSunburstHighlightMode] = useState<SunburstHighlightMode>(() => {
@@ -204,9 +208,20 @@ export function App() {
   }, [showFreeSpace]);
 
   useEffect(() => {
-    fetchVolumes()
+    localStorage.setItem('showChanges', String(showChanges));
+  }, [showChanges]);
+
+  useEffect(() => {
+    localStorage.setItem('showLargeFiles', String(showLargeFiles));
+  }, [showLargeFiles]);
+
+  useEffect(() => {
+    const load = () => fetchVolumeHistory()
       .then((result) => setVolumes(result.volumes))
       .catch(() => setVolumes([]));
+    void load();
+    const timer = setInterval(() => void load(), 10 * 60 * 1000);
+    return () => clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -636,6 +651,13 @@ export function App() {
                 onClick={openInfoModal}
               >{infoSummary(info)}</Badge>
             </Tooltip>
+            <WarningsMenu
+              warnings={spaceWarnings.warnings}
+              rootPath={rootPath}
+              onNavigate={navigate}
+              onDismiss={spaceWarnings.dismiss}
+              onRestore={spaceWarnings.restore}
+            />
             <Tooltip label="Settings">
               <ActionIcon
                 className="settings-button"
@@ -921,6 +943,18 @@ export function App() {
                   disabled={volumes.length === 0}
                 />
                 <Switch
+                  className="show-changes-switch"
+                  checked={showChanges}
+                  onChange={(event) => setShowChanges(event.currentTarget.checked)}
+                  label="Show changes since last scan"
+                />
+                <Switch
+                  className="show-large-files-switch"
+                  checked={showLargeFiles}
+                  onChange={(event) => setShowLargeFiles(event.currentTarget.checked)}
+                  label="Show largest files"
+                />
+                <Switch
                   className="hide-labels-switch"
                   checked={showLabels}
                   onChange={(event) => setShowLabels(event.currentTarget.checked)}
@@ -1063,6 +1097,8 @@ export function App() {
             </Stack>
           </Paper>
 
+          <LowSpaceAlerts warnings={spaceWarnings.warnings} rootPath={rootPath} onNavigate={navigate} onDismiss={spaceWarnings.dismiss} />
+
           {loading ? (
             <Paper className="loading-panel" withBorder p="xl" radius="sm">
               <Flex className="loading-panel-content" align="center" justify="center" mih={420}><Loader className="loading-spinner" size="lg" color="dark" /></Flex>
@@ -1118,8 +1154,21 @@ export function App() {
                       <Text className="current-directory-share-note" size="xs" c="dimmed">Visible rows account for {currentDirectoryShare.toFixed(2)}% of the current directory total.</Text>
                     </Stack>
                   </Paper>
+                  <VolumesPanel volumes={volumes} rootPath={rootPath} onNavigate={navigate} />
                 </Stack>
               </Grid.Col>
+
+              {showChanges ? (
+                <Grid.Col className="changes-column" span={{ base: 12, lg: showLargeFiles ? 6 : 12 }}>
+                  <ChangesPanel path={path} rootPath={rootPath} onNavigate={navigate} />
+                </Grid.Col>
+              ) : null}
+
+              {showLargeFiles ? (
+                <Grid.Col className="large-files-column" span={{ base: 12, lg: showChanges ? 6 : 12 }}>
+                  <LargeFilesPanel path={path} rootPath={rootPath} onNavigate={navigate} />
+                </Grid.Col>
+              ) : null}
 
               <Grid.Col className="listing-column" span={12}>
                 <Paper className="directory-listing-panel" withBorder p="md" radius="sm">
@@ -1457,7 +1506,7 @@ function withVolumeFreeSpace(
     if (!children?.length) {
       children = [{ id: `::used:${volume.path}`, name: node.name, value, path: node.path, type: node.type }];
     }
-    children = [...children, { id: `::free:${volume.path}`, name: 'Free space', value: volume.freeBytes, type: 'free', diskSlice: 'free' }];
+    children = [...children, { id: `::free:${volume.path}`, name: 'Free space', value: volume.freeBytes, type: 'free', diskSlice: 'free', spaceLevel: getSpaceLevel(volume.freeBytes, volume.totalBytes) }];
     added += volume.freeBytes;
   }
 
@@ -1475,7 +1524,7 @@ function toDiskSliceNodes(disk: Volume, directoryBytes: number): Array<Record<st
   }
 
   if (disk.freeBytes > 0) {
-    slices.push({ id: '::disk-free', name: 'Free space', value: disk.freeBytes, type: 'free', diskSlice: 'free' });
+    slices.push({ id: '::disk-free', name: 'Free space', value: disk.freeBytes, type: 'free', diskSlice: 'free', spaceLevel: getSpaceLevel(disk.freeBytes, disk.totalBytes) });
   }
 
   return slices;

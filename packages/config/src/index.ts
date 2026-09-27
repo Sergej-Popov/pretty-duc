@@ -43,6 +43,7 @@ const envSchema = z.object({
   DUC_BIN: z.string().default(appDefaults.ducBin),
   DUC_MOCK_ROOT: z.string().optional(),
   CONFIG_FILE: z.string().default('pretty-duc-config.json'),
+  DATA_DIR: z.string().default('.'),
   ENABLE_TREE_API: z.string().optional().transform((v) => v === 'true'),
   DEFAULT_MIN_SIZE: z
     .string()
@@ -58,6 +59,7 @@ export type AppConfig = {
   ducBin: string;
   mockScanRoot: string | null;
   configFilePath: string;
+  dataDir: string;
   enableTreeApi: boolean;
   defaultMinSize: number | null;
   limits: {
@@ -91,6 +93,7 @@ export function parseConfig(env: Record<string, string | undefined>): AppConfig 
     ducBin: parsed.DUC_BIN,
     mockScanRoot: parsed.DUC_MOCK_ROOT?.trim() ? parsed.DUC_MOCK_ROOT.trim() : null,
     configFilePath: parsed.CONFIG_FILE,
+    dataDir: parsed.DATA_DIR,
     enableTreeApi: parsed.ENABLE_TREE_API ?? appDefaults.enableTreeApi,
     defaultMinSize,
     limits: {

@@ -1,4 +1,4 @@
-import type { ChildrenResponse, ConfigResponse, HealthResponse, InfoResponse, SortMode, TreeResponse, UserConfig, VolumesResponse } from '@pretty-duc/contracts';
+import type { ChangesResponse, ChildrenResponse, ConfigResponse, HealthResponse, InfoResponse, LargeFilesResponse, SortMode, TreeResponse, UserConfig, VolumeHistoryResponse } from '@pretty-duc/contracts';
 
 async function getJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
@@ -34,8 +34,18 @@ export function fetchChildren(path: string, levels: number, sort: SortMode, minS
   return getJson<ChildrenResponse>(`/api/children?${params.toString()}`);
 }
 
-export function fetchVolumes() {
-  return getJson<VolumesResponse>('/api/volumes');
+export function fetchVolumeHistory() {
+  return getJson<VolumeHistoryResponse>('/api/volumes/history');
+}
+
+export function fetchChanges(path: string) {
+  const params = new URLSearchParams({ path });
+  return getJson<ChangesResponse>(`/api/changes?${params.toString()}`);
+}
+
+export function fetchLargeFiles(path: string, olderThanDays: number) {
+  const params = new URLSearchParams({ path, olderThanDays: String(olderThanDays), limit: '50' });
+  return getJson<LargeFilesResponse>(`/api/large-files?${params.toString()}`);
 }
 
 export function fetchTree(path: string) {

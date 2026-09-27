@@ -10,6 +10,7 @@ describe('getTreeJson', () => {
       ducBin: 'duc',
       mockScanRoot: null,
       configFilePath: '/test/config.json',
+      dataDir: '/test',
       enableTreeApi: true,
       defaultMinSize: null,
       limits: {

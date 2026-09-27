@@ -94,6 +94,74 @@ export const volumesResponseSchema = z.object({
 });
 export type VolumesResponse = z.infer<typeof volumesResponseSchema>;
 
+export const volumeSampleSchema = z.object({
+  at: z.string(),
+  freeBytes: z.number().nonnegative(),
+  totalBytes: z.number().nonnegative()
+});
+export type VolumeSample = z.infer<typeof volumeSampleSchema>;
+
+export const volumeForecastSchema = z.object({
+  freeBytesPerDay: z.number(),
+  daysUntilFull: z.number().nonnegative().nullable(),
+  basedOnDays: z.number().nonnegative()
+});
+export type VolumeForecast = z.infer<typeof volumeForecastSchema>;
+
+export const volumeHistorySchema = volumeSchema.extend({
+  samples: z.array(volumeSampleSchema),
+  forecast: volumeForecastSchema.nullable()
+});
+export type VolumeHistory = z.infer<typeof volumeHistorySchema>;
+
+export const volumeHistoryResponseSchema = z.object({
+  volumes: z.array(volumeHistorySchema)
+});
+export type VolumeHistoryResponse = z.infer<typeof volumeHistoryResponseSchema>;
+
+export const snapshotInfoSchema = z.object({
+  scanAt: z.string().nullable(),
+  takenAt: z.string()
+});
+export type SnapshotInfo = z.infer<typeof snapshotInfoSchema>;
+
+export const changeEntrySchema = z.object({
+  path: z.string(),
+  type: nodeTypeSchema,
+  beforeBytes: z.number().nullable(),
+  afterBytes: z.number().nullable(),
+  deltaBytes: z.number()
+});
+export type ChangeEntry = z.infer<typeof changeEntrySchema>;
+
+export const changesResponseSchema = z.object({
+  path: z.string(),
+  from: snapshotInfoSchema.nullable(),
+  to: snapshotInfoSchema.nullable(),
+  minSizeBytes: z.number(),
+  snapshotRunning: z.boolean(),
+  grown: z.array(changeEntrySchema),
+  shrunk: z.array(changeEntrySchema)
+});
+export type ChangesResponse = z.infer<typeof changesResponseSchema>;
+
+export const largeFileSchema = z.object({
+  path: z.string(),
+  sizeBytes: z.number().nonnegative(),
+  modifiedAt: z.string().nullable()
+});
+export type LargeFile = z.infer<typeof largeFileSchema>;
+
+export const largeFilesResponseSchema = z.object({
+  path: z.string(),
+  snapshot: snapshotInfoSchema.nullable(),
+  minSizeBytes: z.number(),
+  olderThanDays: z.number().int().nonnegative(),
+  snapshotRunning: z.boolean(),
+  files: z.array(largeFileSchema)
+});
+export type LargeFilesResponse = z.infer<typeof largeFilesResponseSchema>;
+
 export const treeQuerySchema = z.object({
   path: z.string().min(1)
 });

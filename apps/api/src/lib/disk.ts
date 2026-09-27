@@ -2,6 +2,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import type { AppConfig } from '@pretty-duc/config';
 import type { Volume } from '@pretty-duc/contracts';
+import { readManifest } from './mock-duc';
 
 type DiskConfig = Pick<AppConfig, 'root' | 'mockScanRoot'>;
 
@@ -73,6 +74,8 @@ async function statVolume(config: DiskConfig, ducPath: string, storageId: string
 // and free space. Empty when the scan root is not mounted into this container.
 export async function getVolumes(config: DiskConfig): Promise<Volume[]> {
   if (config.mockScanRoot) {
+    const manifest = await readManifest(path.resolve(config.mockScanRoot));
+    if (manifest.volumes) return manifest.volumes;
     const root = await statVolume(config, config.root, 'mock');
     return root ? [root] : [];
   }
