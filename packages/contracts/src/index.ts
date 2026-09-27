@@ -80,6 +80,20 @@ export const childrenResponseSchema = z.object({
 });
 export type ChildrenResponse = z.infer<typeof childrenResponseSchema>;
 
+export const volumeSchema = z.object({
+  path: z.string(),
+  storageId: z.string(),
+  totalBytes: z.number().nonnegative(),
+  freeBytes: z.number().nonnegative(),
+  usedBytes: z.number().nonnegative()
+});
+export type Volume = z.infer<typeof volumeSchema>;
+
+export const volumesResponseSchema = z.object({
+  volumes: z.array(volumeSchema)
+});
+export type VolumesResponse = z.infer<typeof volumesResponseSchema>;
+
 export const treeQuerySchema = z.object({
   path: z.string().min(1)
 });

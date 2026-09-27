@@ -121,6 +121,9 @@ Raw `duc info` output with parsed metadata.
 ### `GET /api/children?path=/scan/root&levels=2&sort=sizeDesc`
 Primary browsing endpoint. Returns directory children, supports recursive expansion (up to 6 levels), size filtering (`minSize`), and sorting (`sizeDesc` / `nameAsc`).
 
+### `GET /api/volumes`
+The scan root plus every data filesystem mounted below it (read from `/proc/self/mountinfo`), with size, used and free bytes. Mounts inside a volume on the same storage (ZFS child datasets, bind mounts) are left out, so each disk or pool appears once, at its top. Charts use it to add "Free space" slices inside each volume, and "Free space" / "Other data on disk" at the top level when the current directory is at most one level inside its volume. Requires the scan root to be mounted read-only into the Pretty Duc container at the same path the scanner uses (e.g. `/:/scan/root:ro`); returns an empty list otherwise.
+
 ### `GET /api/tree?path=/scan/root/var&levels=2`
 Subtree endpoint. Disabled by default (enable with `ENABLE_TREE_API`).
 

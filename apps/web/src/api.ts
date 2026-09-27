@@ -1,4 +1,4 @@
-import type { ChildrenResponse, ConfigResponse, HealthResponse, InfoResponse, SortMode, TreeResponse, UserConfig } from '@pretty-duc/contracts';
+import type { ChildrenResponse, ConfigResponse, HealthResponse, InfoResponse, SortMode, TreeResponse, UserConfig, VolumesResponse } from '@pretty-duc/contracts';
 
 async function getJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
@@ -32,6 +32,10 @@ export function fetchChildren(path: string, levels: number, sort: SortMode, minS
   }
 
   return getJson<ChildrenResponse>(`/api/children?${params.toString()}`);
+}
+
+export function fetchVolumes() {
+  return getJson<VolumesResponse>('/api/volumes');
 }
 
 export function fetchTree(path: string) {

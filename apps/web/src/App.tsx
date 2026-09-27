@@ -35,9 +35,9 @@ import {
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import type { ChildrenResponse, ExplorerNode, SortMode, TreeResponse } from '@pretty-duc/contracts';
+import type { ChildrenResponse, ExplorerNode, SortMode, TreeResponse, Volume } from '@pretty-duc/contracts';
 import { buildBreadcrumbs, filterNodes, formatBytes, toChartTree } from '@pretty-duc/ui-model';
-import { fetchChildren, fetchHealth, fetchInfo, fetchTree, triggerIndex } from './api';
+import { fetchChildren, fetchHealth, fetchInfo, fetchTree, fetchVolumes, triggerIndex } from './api';
 import { ExplorerChart, type ChartColorTheme, type ChartViewMode, type SunburstHighlightMode } from './ExplorerChart';
 import { SettingsModal } from './SettingsModal';
 
@@ -80,6 +80,8 @@ export function App() {
   const [sunburstRootPath, setSunburstRootPath] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ path: string; x: number; y: number } | null>(null);
   const [useDecal, setUseDecal] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('useDecal') === 'true' : false);
+  const [showFreeSpace, setShowFreeSpace] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('showFreeSpace') !== 'false' : true);
+  const [volumes, setVolumes] = useState<Volume[]>([]);
   const [showLabels, setShowLabels] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('showLabels') !== 'false' : true);
   const [dirsOnlyLabels, setDirsOnlyLabels] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('dirsOnlyLabels') !== 'false' : true);
   const [sunburstHighlightMode, setSunburstHighlightMode] = useState<SunburstHighlightMode>(() => {
@@ -198,6 +200,16 @@ export function App() {
   }, [useDecal]);
 
   useEffect(() => {
+    localStorage.setItem('showFreeSpace', String(showFreeSpace));
+  }, [showFreeSpace]);
+
+  useEffect(() => {
+    fetchVolumes()
+      .then((result) => setVolumes(result.volumes))
+      .catch(() => setVolumes([]));
+  }, []);
+
+  useEffect(() => {
     localStorage.setItem('showLabels', String(showLabels));
   }, [showLabels]);
 
@@ -292,10 +304,12 @@ export function App() {
         path: path,
         children: nodes
       }];
+    } else if (showFreeSpace && volumes.length > 0) {
+      nodes = addVolumeFreeSpace(nodes, path, volumes, data?.totalSizeBytes ?? 0);
     }
 
     return nodes;
-  }, [chartSourceNodes, hiddenPaths, sunburstRootNode, view, breadcrumbs, data?.totalSizeBytes, path]);
+  }, [chartSourceNodes, hiddenPaths, sunburstRootNode, view, breadcrumbs, data?.totalSizeBytes, path, showFreeSpace, volumes]);
 
   const suggestions = useMemo(() => getAutocompleteSuggestions(data?.children ?? [], query), [data?.children, query]);
   suggestionsRef.current = suggestions;
@@ -900,6 +914,13 @@ export function App() {
                   label="Enable decal pattern"
                 />
                 <Switch
+                  className="show-free-space-switch"
+                  checked={showFreeSpace}
+                  onChange={(event) => setShowFreeSpace(event.currentTarget.checked)}
+                  label="Show free disk space"
+                  disabled={volumes.length === 0}
+                />
+                <Switch
                   className="hide-labels-switch"
                   checked={showLabels}
                   onChange={(event) => setShowLabels(event.currentTarget.checked)}
@@ -1378,6 +1399,86 @@ function filterHiddenTree(nodes: ExplorerNode[], hiddenPaths: string[]): Explore
       ...node,
       children: node.children ? filterHiddenTree(node.children, hiddenPaths) : undefined
     }));
+}
+
+// Adds free space to the chart: as top-level slices when the current directory
+// is a volume or one level inside it, and inside the block of every other
+// volume (separate disk or pool) shown in the chart. Each storage shows its
+// free space once, at the highest place it appears.
+function addVolumeFreeSpace(
+  nodes: Array<Record<string, unknown>>,
+  currentPath: string,
+  volumes: Volume[],
+  directoryBytes: number
+): Array<Record<string, unknown>> {
+  const current = findVolume(volumes, currentPath);
+  const shown = new Set<string>(current ? [current.storageId] : []);
+  const byPath = new Map(volumes.map((volume) => [volume.path, volume]));
+  const withVolumes = nodes.map((node) => withVolumeFreeSpace(node, byPath, shown).node);
+  const levelsBelowVolume = current ? currentPath.slice(current.path.length).split('/').filter(Boolean).length : Infinity;
+
+  return current && levelsBelowVolume <= 1
+    ? [...withVolumes, ...toDiskSliceNodes(current, directoryBytes)]
+    : withVolumes;
+}
+
+function findVolume(volumes: Volume[], currentPath: string): Volume | null {
+  let match: Volume | null = null;
+
+  for (const volume of volumes) {
+    const contains = currentPath === volume.path || currentPath.startsWith(`${volume.path}/`);
+    if (contains && (!match || volume.path.length > match.path.length)) {
+      match = volume;
+    }
+  }
+
+  return match;
+}
+
+function withVolumeFreeSpace(
+  node: Record<string, unknown>,
+  byPath: Map<string, Volume>,
+  shown: Set<string>
+): { node: Record<string, unknown>; added: number } {
+  const volume = typeof node.path === 'string' ? byPath.get(node.path) : undefined;
+  const addHere = Boolean(volume && volume.freeBytes > 0 && !shown.has(volume.storageId));
+  const childShown = addHere && volume ? new Set([...shown, volume.storageId]) : shown;
+  const value = typeof node.value === 'number' ? node.value : 0;
+  let added = 0;
+  let children = Array.isArray(node.children)
+    ? node.children.map((child) => {
+        const result = withVolumeFreeSpace(child as Record<string, unknown>, byPath, childShown);
+        added += result.added;
+        return result.node;
+      })
+    : undefined;
+
+  if (addHere && volume) {
+    if (!children?.length) {
+      children = [{ id: `::used:${volume.path}`, name: node.name, value, path: node.path, type: node.type }];
+    }
+    children = [...children, { id: `::free:${volume.path}`, name: 'Free space', value: volume.freeBytes, type: 'free', diskSlice: 'free' }];
+    added += volume.freeBytes;
+  }
+
+  return added > 0 ? { node: { ...node, value: value + added, children }, added } : { node, added };
+}
+
+// Top-level slices so the chart shows the current directory relative to the
+// whole filesystem: data elsewhere on the disk, then free space.
+function toDiskSliceNodes(disk: Volume, directoryBytes: number): Array<Record<string, unknown>> {
+  const otherBytes = Math.max(0, disk.usedBytes - directoryBytes);
+  const slices: Array<Record<string, unknown>> = [];
+
+  if (otherBytes > 0) {
+    slices.push({ id: '::disk-other', name: 'Other data on disk', value: otherBytes, type: 'other', diskSlice: 'other' });
+  }
+
+  if (disk.freeBytes > 0) {
+    slices.push({ id: '::disk-free', name: 'Free space', value: disk.freeBytes, type: 'free', diskSlice: 'free' });
+  }
+
+  return slices;
 }
 
 function markHiddenChartNodes(node: Record<string, unknown>, hiddenPaths: string[]): Record<string, unknown> {

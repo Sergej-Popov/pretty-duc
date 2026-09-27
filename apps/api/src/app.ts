@@ -10,6 +10,7 @@ import { parseDucInfoOutput, assertReasonablePayload } from './lib/parser';
 import { createExecutor, getChildrenTree, getTreeJson } from './lib/duc';
 import { ApiError, toErrorResponse } from './lib/errors';
 import { resolveRequestedPath } from './lib/path-policy';
+import { getVolumes } from './lib/disk';
 
 export function createApp(initialConfig: AppConfig) {
   const app = Fastify({ logger: true });
@@ -117,6 +118,10 @@ export function createApp(initialConfig: AppConfig) {
 
     assertReasonablePayload(result.nodeCount, currentConfig.limits.maxChildrenResponseBytes);
     return payload;
+  });
+
+  app.get('/api/volumes', async () => {
+    return { volumes: await getVolumes(currentConfig) };
   });
 
   app.get('/api/tree', async (request) => {

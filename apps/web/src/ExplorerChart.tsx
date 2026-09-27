@@ -39,6 +39,17 @@ export function ExplorerChart({
   const hiddenColor = colorScheme === 'dark' ? theme.colors.gray[7] : theme.colors.gray[5];
   const circlePackingRootColor = getCirclePackingRootColor(colorTheme, colorScheme, theme);
   const tintColor = theme.white;
+  const diskSliceColors = {
+    free: colorScheme === 'dark' ? theme.colors.dark[5] : theme.colors.gray[1],
+    other: colorScheme === 'dark' ? theme.colors.dark[3] : theme.colors.gray[4]
+  };
+  const freeSpaceDecal = {
+    symbol: 'rect',
+    dashArrayX: [1, 0],
+    dashArrayY: [3, 6],
+    rotation: -Math.PI / 4,
+    color: colorScheme === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'
+  };
   const decal = useDecal
     ? {
         symbol: 'rect',
@@ -57,8 +68,8 @@ export function ExplorerChart({
   }, [nodes, dirsOnlyLabels, visibleLabels]);
 
   const styledNodes = useMemo(
-    () => applyChartNodeStyles(chartNodes, { hiddenColor, decal, palette, tintColor }, view),
-    [decal, hiddenColor, chartNodes, palette, tintColor, view]
+    () => applyChartNodeStyles(chartNodes, { hiddenColor, decal, palette, tintColor, diskSliceColors, freeSpaceDecal }, view),
+    [decal, hiddenColor, chartNodes, palette, tintColor, view, diskSliceColors.free, diskSliceColors.other]
   );
   const flameData = useMemo(() => toFlameGraphData(styledNodes, palette, decal), [decal, palette, styledNodes]);
   const circleData = useMemo(
@@ -208,7 +219,7 @@ export function ExplorerChart({
       return {
         type: 'custom',
         id: 'storage-map',
-        renderItem: (params: unknown, api: any) => renderFlameGraphItem(params, api, decal, hideLabels, dirsOnlyLabels),
+        renderItem: (params: unknown, api: any) => renderFlameGraphItem(params, api, decal, hideLabels, dirsOnlyLabels, freeSpaceDecal),
         encode: { x: [1, 2], y: 0 },
         data: flameData.items
       };
@@ -218,7 +229,7 @@ export function ExplorerChart({
       type: 'custom',
       id: 'storage-map',
       coordinateSystem: 'none',
-      renderItem: (params: unknown, api: any) => renderCirclePackingItem(params, api, decal, hideLabels, dirsOnlyLabels),
+      renderItem: (params: unknown, api: any) => renderCirclePackingItem(params, api, decal, hideLabels, dirsOnlyLabels, freeSpaceDecal),
       progressive: 0,
       data: circleData
     };
@@ -323,12 +334,30 @@ export function ExplorerChart({
 
 function applyChartNodeStyles(
   nodes: Array<Record<string, unknown>>,
-  options: { hiddenColor: string; decal?: Record<string, unknown>; palette: string[]; tintColor: string },
+  options: {
+    hiddenColor: string;
+    decal?: Record<string, unknown>;
+    palette: string[];
+    tintColor: string;
+    diskSliceColors: Record<DiskSlice, string>;
+    freeSpaceDecal: Record<string, unknown>;
+  },
   view: ChartViewMode,
   depth = 0,
   branchColor?: string
 ): Array<Record<string, unknown>> {
   return nodes.map((node, index) => {
+    const diskSlice = getDiskSlice(node);
+    if (diskSlice) {
+      const color = options.diskSliceColors[diskSlice];
+      const decal = diskSlice === 'free' ? options.freeSpaceDecal : options.decal;
+      return {
+        ...node,
+        itemStyle: { color, borderColor: color, ...(decal ? { decal } : null) },
+        ...(view === 'treemap' ? { upperLabel: { backgroundColor: color } } : null)
+      };
+    }
+
     const hidden = Boolean(node.hidden);
     const nodeBranchColor = (view === 'treemap' || view === 'tree' || view === 'tree-radial') && depth === 0
       ? options.palette[index % options.palette.length]
@@ -358,6 +387,12 @@ function applyChartNodeStyles(
       children
     };
   });
+}
+
+export type DiskSlice = 'free' | 'other';
+
+function getDiskSlice(node: Record<string, unknown>): DiskSlice | null {
+  return node.diskSlice === 'free' || node.diskSlice === 'other' ? node.diskSlice : null;
 }
 
 function hideLabelsOnFileNodes(nodes: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
@@ -424,20 +459,21 @@ function appendFlameNode(
   });
 }
 
-function renderFlameGraphItem(_params: unknown, api: any, decal?: Record<string, unknown>, hideLabels?: boolean, dirsOnlyLabels?: boolean) {
+function renderFlameGraphItem(_params: unknown, api: any, decal?: Record<string, unknown>, hideLabels?: boolean, dirsOnlyLabels?: boolean, freeSpaceDecal?: Record<string, unknown>) {
   const level = api.value(0);
   const start = api.coord([api.value(1), level]);
   const end = api.coord([api.value(2), level]);
   const height = (api.size?.([0, 1]) ?? [0, 22])[1];
   const width = Math.max(0, end[0] - start[0]);
+  const nodeType = String(api.value(5) ?? '');
   const style = api.style();
   style.fill = api.visual('color');
-  if (decal) {
-    style.decal = decal;
+  const itemDecal = nodeType === 'free' ? freeSpaceDecal : decal;
+  if (itemDecal) {
+    style.decal = itemDecal;
   }
 
   const label = !hideLabels ? api.value(3) : '';
-  const nodeType = String(api.value(5) ?? '');
   const showLabel = typeof label === 'string' && label.length > 0 && !(dirsOnlyLabels && nodeType === 'file');
 
   return {
@@ -569,7 +605,7 @@ function placeChildCircles(nodes: Array<Record<string, unknown>>, centerX: numbe
   });
 }
 
-function renderCirclePackingItem(_params: unknown, api: any, decal?: Record<string, unknown>, hideLabels?: boolean, dirsOnlyLabels?: boolean) {
+function renderCirclePackingItem(_params: unknown, api: any, decal?: Record<string, unknown>, hideLabels?: boolean, dirsOnlyLabels?: boolean, freeSpaceDecal?: Record<string, unknown>) {
   const width = api.getWidth();
   const height = api.getHeight();
   const size = Math.min(width, height);
@@ -584,8 +620,9 @@ function renderCirclePackingItem(_params: unknown, api: any, decal?: Record<stri
   const style = api.style();
   style.fill = api.visual('color');
   style.opacity = depth === 0 ? 1 : depth === 1 ? 0.82 : 0.9;
-  if (decal) {
-    style.decal = decal;
+  const itemDecal = nodeType === 'free' ? freeSpaceDecal : decal;
+  if (itemDecal) {
+    style.decal = itemDecal;
   }
 
   const showLabel = !hideLabels && radius > 14 && label.length > 0 && !(dirsOnlyLabels && nodeType === 'file');

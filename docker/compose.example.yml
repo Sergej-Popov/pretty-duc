@@ -20,6 +20,7 @@ services:
       PORT: 3000
     volumes:
       - duc_database:/database:ro
+      - /:/scan/root:ro
 
 volumes:
   duc_database:
